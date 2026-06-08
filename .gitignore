@@ -1,0 +1,32 @@
+# Node
+node_modules/
+.turbo/
+dist/
+*.tsbuildinfo
+
+# Next.js
+.next/
+out/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.uv/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Alembic
+alembic/versions/*.py
+!alembic/versions/.gitkeep
