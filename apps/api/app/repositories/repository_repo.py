@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+import uuid
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.repository import Repository
+
+
+async def get_by_github_id(session: AsyncSession, github_id: int) -> Repository | None:
+    result = await session.execute(select(Repository).where(Repository.github_id == github_id))
+    return result.scalar_one_or_none()
+
+
+async def get_by_id(session: AsyncSession, repository_id: uuid.UUID) -> Repository | None:
+    result = await session.execute(select(Repository).where(Repository.id == repository_id))
+    return result.scalar_one_or_none()
+
+
+async def list_all(session: AsyncSession) -> list[Repository]:
+    result = await session.execute(select(Repository).order_by(Repository.created_at.desc()))
+    return list(result.scalars().all())
+
+
+async def delete_by_id(session: AsyncSession, repository_id: uuid.UUID) -> bool:
+    repo = await get_by_id(session, repository_id)
+    if not repo:
+        return False
+    await session.delete(repo)
+    await session.commit()
+    return True
+
+
+async def create(
+    session: AsyncSession,
+    *,
+    github_id: int,
+    owner: str,
+    name: str,
+    full_name: str,
+    description: str | None,
+    default_branch: str,
+    github_url: str,
+) -> Repository:
+    repo = Repository(
+        github_id=github_id,
+        owner=owner,
+        name=name,
+        full_name=full_name,
+        description=description,
+        default_branch=default_branch,
+        github_url=github_url,
+    )
+    session.add(repo)
+    await session.commit()
+    await session.refresh(repo)
+    return repo

@@ -1,4 +1,5 @@
-import { cn } from "@/lib/utils";
+import Link from "next/link"
+import { cn } from "@/lib/utils"
 
 const navItems = [
   { label: "Dashboard", href: "/" },
@@ -6,7 +7,7 @@ const navItems = [
   { label: "Issues", href: "/issues" },
   { label: "Agents", href: "/agents" },
   { label: "Pull Requests", href: "/pull-requests" },
-];
+]
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -20,7 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="flex-1 overflow-y-auto p-2">
           {navItems.map((item) => (
-            <a
+            <Link
               key={item.href}
               href={item.href}
               className={cn(
@@ -29,17 +30,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
             >
               {item.label}
-            </a>
+            </Link>
           ))}
         </nav>
       </aside>
 
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-14 items-center border-b border-gray-200 bg-white px-6">
-          <h1 className="text-sm font-medium text-gray-700">Dashboard</h1>
+          <h1 className="text-sm font-medium text-gray-700">Forge</h1>
         </header>
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
     </div>
-  );
+  )
 }

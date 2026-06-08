@@ -1,0 +1,129 @@
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api"
+
+export interface IngestionRunOut {
+  id: string
+  status: "pending" | "cloning" | "analyzing" | "embedding" | "completed" | "failed"
+  total_files: number | null
+  processed_files: number
+  error: string | null
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface RepositoryStats {
+  total_files: number
+  total_chunks: number
+  open_issues: number
+}
+
+export interface RepositoryOut {
+  id: string
+  owner: string
+  name: string
+  full_name: string
+  description: string | null
+  github_url: string
+  default_branch: string
+  created_at: string
+  stats: RepositoryStats
+  latest_ingestion: IngestionRunOut | null
+}
+
+export interface RepositoryCreatedOut {
+  repository_id: string
+  ingestion_run_id: string
+  status: string
+}
+
+export interface FileOut {
+  id: string
+  path: string
+  language: string | null
+  size_bytes: number
+  chunk_count: number
+}
+
+export interface FileListOut {
+  total: number
+  files: FileOut[]
+}
+
+export interface IssueOut {
+  id: string
+  number: number
+  title: string
+  state: string
+  labels: string[]
+}
+
+export interface IssueListOut {
+  total: number
+  issues: IssueOut[]
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API error ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<T>
+}
+
+export async function fetchRepositories(): Promise<RepositoryOut[]> {
+  return apiFetch<RepositoryOut[]>("/repositories")
+}
+
+export async function registerRepository(githubUrl: string): Promise<RepositoryCreatedOut> {
+  return apiFetch<RepositoryCreatedOut>("/repositories", {
+    method: "POST",
+    body: JSON.stringify({ github_url: githubUrl }),
+  })
+}
+
+export async function fetchRepository(id: string): Promise<RepositoryOut> {
+  return apiFetch<RepositoryOut>(`/repositories/${id}`)
+}
+
+export async function fetchIngestionStatus(id: string): Promise<IngestionRunOut> {
+  return apiFetch<IngestionRunOut>(`/repositories/${id}/ingestion`)
+}
+
+export async function fetchFiles(
+  id: string,
+  params?: { language?: string; limit?: number; offset?: number }
+): Promise<FileListOut> {
+  const qs = new URLSearchParams()
+  if (params?.language) qs.set("language", params.language)
+  if (params?.limit != null) qs.set("limit", String(params.limit))
+  if (params?.offset != null) qs.set("offset", String(params.offset))
+  const query = qs.toString() ? `?${qs}` : ""
+  return apiFetch<FileListOut>(`/repositories/${id}/files${query}`)
+}
+
+export async function fetchIssues(
+  id: string,
+  params?: { state?: string; limit?: number; offset?: number }
+): Promise<IssueListOut> {
+  const qs = new URLSearchParams()
+  if (params?.state) qs.set("state", params.state)
+  if (params?.limit != null) qs.set("limit", String(params.limit))
+  if (params?.offset != null) qs.set("offset", String(params.offset))
+  const query = qs.toString() ? `?${qs}` : ""
+  return apiFetch<IssueListOut>(`/repositories/${id}/issues${query}`)
+}
+
+export async function retriggerIngestion(id: string): Promise<{ ingestion_run_id: string; status: string }> {
+  return apiFetch(`/repositories/${id}/ingest`, { method: "POST" })
+}
+
+export async function deleteRepository(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/repositories/${id}`, { method: "DELETE" })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API error ${res.status}: ${text}`)
+  }
+}

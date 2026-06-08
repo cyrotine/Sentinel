@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""
     github_token: str = ""
+    google_api_key: str = ""
+    embedding_model: str = "models/text-embedding-004"
+    clone_base_dir: str = "/tmp/forge_clones"
     api_port: int = 8000
     debug: bool = False
 
