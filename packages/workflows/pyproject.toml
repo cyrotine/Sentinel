@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forge-workflows"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic>=2.10",
+  "langgraph>=0.2",
+  "forge-agents",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["forge_workflows"]
+
+[tool.uv.sources]
+forge-agents = { workspace = true }

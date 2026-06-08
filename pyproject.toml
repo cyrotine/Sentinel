@@ -1,0 +1,9 @@
+[tool.uv.workspace]
+members = [
+  "apps/api",
+  "packages/agents",
+  "packages/workflows",
+  "packages/github",
+  "packages/repository-analysis",
+  "packages/vector-store",
+]
