@@ -3,6 +3,7 @@ from forge_agents.developer import DeveloperAgent
 from forge_agents.issue_analyzer import IssueAnalyzerAgent
 from forge_agents.issue_prioritizer import IssuePrioritizerAgent
 from forge_agents.planner import PlannerAgent
+from forge_agents.pr_generator import PRGeneratorAgent
 from forge_agents.repo_analyzer import RepoAnalyzerAgent
 from forge_agents.retrieve_context import RetrieveContextAgent
 from forge_agents.reviewer import ReviewerAgent
@@ -16,6 +17,7 @@ __all__ = [
     "IssueAnalyzerAgent",
     "IssuePrioritizerAgent",
     "PlannerAgent",
+    "PRGeneratorAgent",
     "RepoAnalyzerAgent",
     "RetrieveContextAgent",
     "ReviewerAgent",

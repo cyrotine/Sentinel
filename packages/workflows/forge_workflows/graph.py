@@ -454,17 +454,39 @@ async def reviewer(state: SentinelState) -> dict:
     }
 
 
-def pr_generator(state: SentinelState) -> dict:
+async def pr_generator(state: SentinelState) -> dict:
     """Generate pull request metadata.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini to produce a PR title,
-    body, and branch name, then write ``pull_request_draft``.
+    Synthesizes all evidence into a PullRequestDraft, creating a professional
+    review summary, branch names, and merge recommendations.
     """
     logger.info("Node: %s", PR_GENERATOR)
+
+    from app.config import settings
+    from forge_agents.pr_generator import PRGeneratorAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.2,
+    )
+    agent = PRGeneratorAgent(llm=llm)
+
+    draft = await agent.generate_pr(
+        code_changes=state.code_changes,
+        plan=state.plan,
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        validation_result=state.validation_result,
+        test_results=state.test_results,
+        review=state.review,
+    )
+
     return {
         "current_agent": PR_GENERATOR,
         "status": SentinelStatus.GENERATING_PR,
+        "pull_request_draft": draft,
     }
 
 
