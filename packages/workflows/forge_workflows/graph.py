@@ -208,19 +208,52 @@ async def issue_prioritizer(state: SentinelState) -> dict:
     }
 
 
-def retrieve_context(state: SentinelState) -> dict:
+async def retrieve_context(state: SentinelState) -> dict:
     """Retrieve relevant code chunks from Qdrant.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will embed the selected issue text,
-    search the Qdrant collection, and write ``relevant_chunks``.
+    Embeds the selected issue text, searches the repository's Qdrant
+    collection, and returns the top-k most relevant code chunks.
 
-    Note: This is a utility node, not an LLM-powered agent.
+    Note: This is a deterministic utility node, not an LLM-powered agent.
     """
     logger.info("Node: %s", RETRIEVE_CONTEXT)
+
+    from app.config import settings
+    from forge_agents.retrieve_context import RetrieveContextAgent
+    from forge_repository_analysis.embedder import CodeEmbedder
+    from forge_vector_store import VectorStore
+
+    if not state.selected_issue:
+        logger.warning("No selected issue — skipping context retrieval")
+        return {
+            "current_agent": RETRIEVE_CONTEXT,
+            "status": SentinelStatus.RETRIEVING_CONTEXT,
+            "relevant_chunks": [],
+        }
+
+    # Build semantic search query from issue title + body
+    query_parts = [state.selected_issue.title]
+    if state.selected_issue.body:
+        query_parts.append(state.selected_issue.body)
+    query = " ".join(query_parts)
+
+    collection = f"repo_{state.repository_id}"
+
+    embedder = CodeEmbedder(settings.google_api_key, settings.embedding_model)
+    vector_store = VectorStore(settings.qdrant_url, settings.qdrant_api_key or None)
+
+    agent = RetrieveContextAgent(embedder=embedder, vector_store=vector_store)
+
+    chunks = await agent.retrieve(
+        collection=collection,
+        query=query,
+        limit=5,
+    )
+
     return {
         "current_agent": RETRIEVE_CONTEXT,
         "status": SentinelStatus.RETRIEVING_CONTEXT,
+        "relevant_chunks": chunks,
     }
 
 
