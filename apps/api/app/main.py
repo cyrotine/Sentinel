@@ -31,12 +31,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.error("Qdrant connection failed: %s", exc)
         raise
 
-    # Reset any ingestion runs that were left in a non-terminal state from a previous crash
+    # Reset any runs that were left in a non-terminal state from a previous crash
     from app.database import AsyncSessionLocal
-    from app.repositories import ingestion_repo
+    from app.repositories import agent_run_repo, ingestion_repo
 
     async with AsyncSessionLocal() as session:
         await ingestion_repo.reset_stuck_runs(session)
+        await agent_run_repo.reset_stuck_runs(session)
 
     yield
 
@@ -62,3 +63,7 @@ app.include_router(health_router, prefix="/api")
 from app.api.repositories import router as repositories_router  # noqa: E402
 
 app.include_router(repositories_router, prefix="/api")
+
+from app.api.agent_runs import router as agent_runs_router  # noqa: E402
+
+app.include_router(agent_runs_router, prefix="/api")

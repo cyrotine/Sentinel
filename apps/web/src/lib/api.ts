@@ -127,3 +127,65 @@ export async function deleteRepository(id: string): Promise<void> {
     throw new Error(`API error ${res.status}: ${text}`)
   }
 }
+
+// ---------------------------------------------------------------------------
+// Agent runs
+// ---------------------------------------------------------------------------
+
+export interface AgentRunResult {
+  selected_issue: Record<string, unknown> | null
+  plan: Record<string, unknown> | null
+  code_changes: Record<string, unknown>[]
+  review: Record<string, unknown> | null
+  pull_request_draft: Record<string, unknown> | null
+}
+
+export interface AgentRunOut {
+  id: string
+  repository_id: string
+  target_issue_id: string | null
+  status: string
+  current_node: string | null
+  error: string | null
+  result: AgentRunResult | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface AgentRunListOut {
+  total: number
+  runs: AgentRunOut[]
+}
+
+export interface AgentRunCreatedOut {
+  run_id: string
+  status: string
+}
+
+export async function fetchAgentRuns(params?: {
+  repository_id?: string
+  limit?: number
+  offset?: number
+}): Promise<AgentRunListOut> {
+  const qs = new URLSearchParams()
+  if (params?.repository_id) qs.set("repository_id", params.repository_id)
+  if (params?.limit != null) qs.set("limit", String(params.limit))
+  if (params?.offset != null) qs.set("offset", String(params.offset))
+  const query = qs.toString() ? `?${qs}` : ""
+  return apiFetch<AgentRunListOut>(`/agent-runs${query}`)
+}
+
+export async function fetchAgentRun(runId: string): Promise<AgentRunOut> {
+  return apiFetch<AgentRunOut>(`/agent-runs/${runId}`)
+}
+
+export async function startAgentRun(body: {
+  repository_id: string
+  target_issue_id?: string | null
+}): Promise<AgentRunCreatedOut> {
+  return apiFetch<AgentRunCreatedOut>("/agent-runs", {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}

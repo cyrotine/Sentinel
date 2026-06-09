@@ -11,6 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base
 
 if TYPE_CHECKING:
+    from app.models.agent_run import AgentRun
     from app.models.ingestion_run import IngestionRun
     from app.models.issue import Issue
     from app.models.repository_file import RepositoryFile
@@ -40,4 +41,7 @@ class Repository(Base):
     )
     issues: Mapped[list[Issue]] = relationship(
         "Issue", back_populates="repository", cascade="all, delete-orphan"
+    )
+    agent_runs: Mapped[list[AgentRun]] = relationship(
+        "AgentRun", back_populates="repository", cascade="all, delete-orphan"
     )
