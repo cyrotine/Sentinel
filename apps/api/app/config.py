@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     github_token: str = ""
     google_api_key: str = ""
-    embedding_model: str = "models/text-embedding-004"
+    embedding_model: str = "models/gemini-embedding-001"
+    brain_llm_model: str = "gemini-2.5-flash"
     clone_base_dir: str = "/tmp/forge_clones"
     api_port: int = 8000
     debug: bool = False

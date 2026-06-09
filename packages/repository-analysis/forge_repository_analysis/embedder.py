@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 class CodeEmbedder:
-    def __init__(self, api_key: str, model: str = "models/text-embedding-004") -> None:
+    def __init__(self, api_key: str, model: str = "models/gemini-embedding-001") -> None:
         from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
         self._embeddings = GoogleGenerativeAIEmbeddings(model=model, google_api_key=api_key)
