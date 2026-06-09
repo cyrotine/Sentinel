@@ -1,4 +1,5 @@
 from forge_workflows.state import (
+    BrainInputs,
     CodeChange,
     IssueAnalysis,
     Plan,
@@ -25,6 +26,7 @@ __all__ = [
     "WorkflowState",
     "WorkflowStatus",
     # Sub-models
+    "BrainInputs",
     "CodeChange",
     "IssueAnalysis",
     "Plan",

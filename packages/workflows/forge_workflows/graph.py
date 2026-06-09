@@ -1,8 +1,12 @@
 """Sentinel Brain LangGraph workflow definition.
 
 Defines the multi-agent pipeline as a compiled LangGraph ``StateGraph``.
-Each node is a placeholder that updates ``current_agent`` and returns state
-unchanged — business logic will be injected when agents are implemented.
+
+This module is **application-agnostic**: it imports nothing from ``app.*`` and
+never touches the database or constructs LLM clients.  All dependencies
+(``llm``, ``embedder``, ``vector_store``) are injected via :func:`build_graph`,
+and all repository data is read from pre-loaded ``state.inputs`` fields populated
+by the application's ``BrainService`` before the graph is invoked.
 
 Graph topology::
 
@@ -27,11 +31,26 @@ Graph topology::
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from langgraph.graph import END, START, StateGraph
 
+from forge_agents.developer import DeveloperAgent
+from forge_agents.issue_analyzer import IssueAnalyzerAgent
+from forge_agents.issue_prioritizer import IssuePrioritizerAgent
+from forge_agents.planner import PlannerAgent
+from forge_agents.pr_generator import PRGeneratorAgent
+from forge_agents.repo_analyzer import RepoAnalyzerAgent
+from forge_agents.retrieve_context import RetrieveContextAgent
+from forge_agents.reviewer import ReviewerAgent
+from forge_agents.test_agent import TestAgent
+from forge_agents.validator import ValidatorAgent
 from forge_workflows.state import SentinelState, SentinelStatus, ValidationResult
+
+if TYPE_CHECKING:
+    from forge_repository_analysis.embedder import CodeEmbedder
+    from forge_vector_store.store import VectorStore
+    from langchain_core.language_models import BaseChatModel
 
 logger = logging.getLogger(__name__)
 
@@ -53,456 +72,15 @@ PR_GENERATOR = "pr_generator"
 
 
 # ---------------------------------------------------------------------------
-# Placeholder node functions
-# ---------------------------------------------------------------------------
-
-
-async def repo_analyzer(state: SentinelState) -> dict:
-    """Analyze repository structure and technology stack.
-
-    Loads data from Postgres (repository_repo, file_repo) and calls
-    the RepoAnalyzerAgent to produce a RepoContext.
-    """
-    logger.info("Node: %s", REPO_ANALYZER)
-
-    import uuid
-    from app.database import AsyncSessionLocal
-    from app.repositories import file_repo, repository_repo
-    from app.config import settings
-    from forge_agents.repo_analyzer import RepoAnalyzerAgent
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    repo_id = uuid.UUID(state.repository_id)
-
-    async with AsyncSessionLocal() as session:
-        repo = await repository_repo.get_by_id(session, repo_id)
-        if not repo:
-            raise ValueError(f"Repository {repo_id} not found")
-
-        total_files, files = await file_repo.list_for_repo(session, repo_id, limit=10000)
-
-        file_paths = [f.path for f in files]
-        file_languages = {f.path: f.language for f in files}
-
-    llm = ChatGoogleGenerativeAI(
-        model=settings.brain_llm_model,
-        google_api_key=settings.google_api_key,
-        temperature=0.2,
-    )
-    agent = RepoAnalyzerAgent(llm=llm)
-
-    repo_context = await agent.analyze(
-        repo_name=repo.full_name,
-        repo_description=repo.description or "",
-        file_paths=file_paths,
-        file_languages=file_languages,
-        total_files=total_files,
-    )
-
-    return {
-        "current_agent": REPO_ANALYZER,
-        "status": SentinelStatus.ANALYZING_REPO,
-        "repo_context": repo_context,
-    }
-
-
-async def issue_analyzer(state: SentinelState) -> dict:
-    """Analyze open issues for the repository.
-
-    Loads issues from Postgres (issue_repo) and calls the
-    IssueAnalyzerAgent to classify each one into an IssueAnalysis.
-    """
-    logger.info("Node: %s", ISSUE_ANALYZER)
-
-    import uuid
-    from app.database import AsyncSessionLocal
-    from app.repositories import issue_repo
-    from app.config import settings
-    from forge_agents.issue_analyzer import IssueAnalyzerAgent
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    repo_id = uuid.UUID(state.repository_id)
-
-    async with AsyncSessionLocal() as session:
-        total, issues = await issue_repo.list_for_repo(
-            session, repo_id, state="open", limit=200
-        )
-
-    if not issues:
-        logger.warning("No open issues found for repository %s", repo_id)
-        return {
-            "current_agent": ISSUE_ANALYZER,
-            "status": SentinelStatus.ANALYZING_ISSUES,
-            "issue_analyses": [],
-        }
-
-    # Convert ORM Issue objects to plain dicts for the pure agent
-    issue_dicts = [
-        {
-            "issue_id": str(issue.id),
-            "number": issue.number,
-            "title": issue.title,
-            "body": issue.body or "",
-            "labels": issue.labels or [],
-            "state": issue.state,
-        }
-        for issue in issues
-    ]
-
-    llm = ChatGoogleGenerativeAI(
-        model=settings.brain_llm_model,
-        google_api_key=settings.google_api_key,
-        temperature=0.2,
-    )
-    agent = IssueAnalyzerAgent(llm=llm)
-
-    analyses = await agent.analyze(
-        issues=issue_dicts,
-        repo_context=state.repo_context,
-    )
-
-    return {
-        "current_agent": ISSUE_ANALYZER,
-        "status": SentinelStatus.ANALYZING_ISSUES,
-        "issue_analyses": analyses,
-    }
-
-
-
-async def issue_prioritizer(state: SentinelState) -> dict:
-    """Select the highest-priority issue to work on.
-
-    Consumes ``state.issue_analyses`` from the prior issue_analyzer node
-    and calls the IssuePrioritizerAgent to select a single issue.
-    Supports ``state.target_issue_id`` to bypass LLM ranking.
-    """
-    logger.info("Node: %s", ISSUE_PRIORITIZER)
-
-    from app.config import settings
-    from forge_agents.issue_prioritizer import IssuePrioritizerAgent
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    if not state.issue_analyses:
-        logger.warning("No issue analyses available — cannot prioritize")
-        return {
-            "current_agent": ISSUE_PRIORITIZER,
-            "status": SentinelStatus.PRIORITIZING,
-        }
-
-    llm = ChatGoogleGenerativeAI(
-        model=settings.brain_llm_model,
-        google_api_key=settings.google_api_key,
-        temperature=0.2,
-    )
-    agent = IssuePrioritizerAgent(llm=llm)
-
-    selected_issue = await agent.prioritize(
-        issue_analyses=state.issue_analyses,
-        target_issue_id=state.target_issue_id,
-    )
-
-    return {
-        "current_agent": ISSUE_PRIORITIZER,
-        "status": SentinelStatus.PRIORITIZING,
-        "selected_issue": selected_issue,
-    }
-
-
-async def retrieve_context(state: SentinelState) -> dict:
-    """Retrieve relevant code chunks from Qdrant.
-
-    Embeds the selected issue text, searches the repository's Qdrant
-    collection, and returns the top-k most relevant code chunks.
-
-    Note: This is a deterministic utility node, not an LLM-powered agent.
-    """
-    logger.info("Node: %s", RETRIEVE_CONTEXT)
-
-    from app.config import settings
-    from forge_agents.retrieve_context import RetrieveContextAgent
-    from forge_repository_analysis.embedder import CodeEmbedder
-    from forge_vector_store import VectorStore
-
-    if not state.selected_issue:
-        logger.warning("No selected issue — skipping context retrieval")
-        return {
-            "current_agent": RETRIEVE_CONTEXT,
-            "status": SentinelStatus.RETRIEVING_CONTEXT,
-            "relevant_chunks": [],
-        }
-
-    # Build semantic search query from issue title + body
-    query_parts = [state.selected_issue.title]
-    if state.selected_issue.body:
-        query_parts.append(state.selected_issue.body)
-    query = " ".join(query_parts)
-
-    collection = f"repo_{state.repository_id}"
-
-    embedder = CodeEmbedder(settings.google_api_key, settings.embedding_model)
-    vector_store = VectorStore(settings.qdrant_url, settings.qdrant_api_key or None)
-
-    agent = RetrieveContextAgent(embedder=embedder, vector_store=vector_store)
-
-    chunks = await agent.retrieve(
-        collection=collection,
-        query=query,
-        limit=5,
-    )
-
-    return {
-        "current_agent": RETRIEVE_CONTEXT,
-        "status": SentinelStatus.RETRIEVING_CONTEXT,
-        "relevant_chunks": chunks,
-    }
-
-
-async def planner(state: SentinelState) -> dict:
-    """Create an implementation plan for the selected issue.
-
-    Synthesizes the selected issue, repository context, and retrieved
-    code chunks into a structured Plan with ordered tasks.
-    """
-    logger.info("Node: %s", PLANNER)
-
-    from app.config import settings
-    from forge_agents.planner import PlannerAgent
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    if not state.selected_issue:
-        logger.warning("No selected issue — cannot create plan")
-        return {
-            "current_agent": PLANNER,
-            "status": SentinelStatus.PLANNING,
-        }
-
-    llm = ChatGoogleGenerativeAI(
-        model=settings.brain_llm_model,
-        google_api_key=settings.google_api_key,
-        temperature=0.2,
-    )
-    agent = PlannerAgent(llm=llm)
-
-    plan = await agent.plan(
-        selected_issue=state.selected_issue,
-        repo_context=state.repo_context,
-        retrieved_chunks=state.relevant_chunks,
-    )
-
-    return {
-        "current_agent": PLANNER,
-        "status": SentinelStatus.PLANNING,
-        "plan": plan,
-    }
-
-
-async def developer(state: SentinelState) -> dict:
-    """Generate code changes based on the plan.
-
-    Translates the implementation plan into concrete CodeChange objects
-    containing unified diffs. On retry iterations, it also receives
-    ``validation_result`` or ``review`` feedback.
-    """
-    logger.info("Node: %s (iteration %d)", DEVELOPER, state.iteration)
-
-    from app.config import settings
-    from forge_agents.developer import DeveloperAgent
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    if not state.plan:
-        logger.warning("No plan available — cannot generate code changes")
-        return {
-            "current_agent": DEVELOPER,
-            "status": SentinelStatus.DEVELOPING,
-        }
-
-    llm = ChatGoogleGenerativeAI(
-        model=settings.brain_llm_model,
-        google_api_key=settings.google_api_key,
-        temperature=0.1,
-    )
-    agent = DeveloperAgent(llm=llm)
-
-    code_changes = await agent.develop(
-        plan=state.plan,
-        selected_issue=state.selected_issue,
-        repo_context=state.repo_context,
-        retrieved_chunks=state.relevant_chunks,
-    )
-
-    return {
-        "current_agent": DEVELOPER,
-        "status": SentinelStatus.DEVELOPING,
-        "code_changes": code_changes,
-    }
-
-
-async def validator(state: SentinelState) -> dict:
-    """Validate the generated code changes.
-
-    Checks that code changes are safe, sufficient, and aligned with the
-    implementation plan. Routes back to developer on failure via
-    ``route_after_validator``.
-    """
-    logger.info("Node: %s", VALIDATOR)
-
-    from app.config import settings
-    from forge_agents.validator import ValidatorAgent
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    if not state.code_changes:
-        logger.warning("No code changes to validate")
-        return {
-            "current_agent": VALIDATOR,
-            "status": SentinelStatus.VALIDATING,
-            "validation_result": ValidationResult(
-                passed=False,
-                issues=["No code changes were generated."],
-                suggestions=["Re-run the developer agent."],
-            ),
-        }
-
-    llm = ChatGoogleGenerativeAI(
-        model=settings.brain_llm_model,
-        google_api_key=settings.google_api_key,
-        temperature=0.1,
-    )
-    agent = ValidatorAgent(llm=llm)
-
-    validation_result = await agent.validate(
-        code_changes=state.code_changes,
-        plan=state.plan,
-        selected_issue=state.selected_issue,
-        repo_context=state.repo_context,
-        retrieved_chunks=state.relevant_chunks,
-    )
-
-    return {
-        "current_agent": VALIDATOR,
-        "status": SentinelStatus.VALIDATING,
-        "validation_result": validation_result,
-    }
-
-
-async def test_agent(state: SentinelState) -> dict:
-    """Generate simulated tests for the code changes.
-
-    Determines what verification activities should be performed,
-    focusing on high-value checks and Planner alignment.
-    """
-    logger.info("Node: %s", TEST_AGENT)
-
-    from app.config import settings
-    from forge_agents.test_agent import TestAgent
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    llm = ChatGoogleGenerativeAI(
-        model=settings.brain_llm_model,
-        google_api_key=settings.google_api_key,
-        temperature=0.2,
-    )
-    agent = TestAgent(llm=llm)
-
-    test_results = await agent.test(
-        code_changes=state.code_changes,
-        plan=state.plan,
-        selected_issue=state.selected_issue,
-        repo_context=state.repo_context,
-        validation_result=state.validation_result,
-    )
-
-    return {
-        "current_agent": TEST_AGENT,
-        "status": SentinelStatus.TESTING,
-        "test_results": test_results,
-    }
-
-
-async def reviewer(state: SentinelState) -> dict:
-    """Review the code changes holistically.
-
-    Performs a simulated PR review evaluating validation and testing results,
-    Planner alignment, and patch scope. Routes back to developer on failure
-    if iterations allow, otherwise routes to PR generation.
-    """
-    logger.info("Node: %s", REVIEWER)
-
-    from app.config import settings
-    from forge_agents.reviewer import ReviewerAgent
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    llm = ChatGoogleGenerativeAI(
-        model=settings.brain_llm_model,
-        google_api_key=settings.google_api_key,
-        temperature=0.2,
-    )
-    agent = ReviewerAgent(llm=llm)
-
-    review = await agent.review(
-        code_changes=state.code_changes,
-        plan=state.plan,
-        selected_issue=state.selected_issue,
-        repo_context=state.repo_context,
-        validation_result=state.validation_result,
-        test_results=state.test_results,
-    )
-
-    return {
-        "current_agent": REVIEWER,
-        "status": SentinelStatus.REVIEWING,
-        "review": review,
-    }
-
-
-async def pr_generator(state: SentinelState) -> dict:
-    """Generate pull request metadata.
-
-    Synthesizes all evidence into a PullRequestDraft, creating a professional
-    review summary, branch names, and merge recommendations.
-    """
-    logger.info("Node: %s", PR_GENERATOR)
-
-    from app.config import settings
-    from forge_agents.pr_generator import PRGeneratorAgent
-    from langchain_google_genai import ChatGoogleGenerativeAI
-
-    llm = ChatGoogleGenerativeAI(
-        model=settings.brain_llm_model,
-        google_api_key=settings.google_api_key,
-        temperature=0.2,
-    )
-    agent = PRGeneratorAgent(llm=llm)
-
-    draft = await agent.generate_pr(
-        code_changes=state.code_changes,
-        plan=state.plan,
-        selected_issue=state.selected_issue,
-        repo_context=state.repo_context,
-        validation_result=state.validation_result,
-        test_results=state.test_results,
-        review=state.review,
-    )
-
-    return {
-        "current_agent": PR_GENERATOR,
-        "status": SentinelStatus.GENERATING_PR,
-        "pull_request_draft": draft,
-    }
-
-
-# ---------------------------------------------------------------------------
-# Conditional routing functions
+# Conditional routing functions (pure — no injected dependencies)
 # ---------------------------------------------------------------------------
 
 
 def route_after_validator(state: SentinelState) -> Literal["developer", "test_agent"]:
     """Decide whether to retry development or proceed to testing.
 
-    Routes back to ``developer`` if:
-        - ``validation_result`` exists AND ``passed`` is False
-        - AND ``iteration`` < ``max_iterations``
-
-    Otherwise proceeds to ``test_agent``.
+    Routes back to ``developer`` if validation failed and the iteration budget
+    is not exhausted; otherwise proceeds to ``test_agent``.
     """
     vr = state.validation_result
     if vr is not None and not vr.passed and state.iteration < state.max_iterations:
@@ -514,11 +92,8 @@ def route_after_validator(state: SentinelState) -> Literal["developer", "test_ag
 def route_after_reviewer(state: SentinelState) -> Literal["developer", "pr_generator"]:
     """Decide whether to retry development or proceed to PR generation.
 
-    Routes back to ``developer`` if:
-        - ``review`` exists AND ``approved`` is False
-        - AND ``iteration`` < ``max_iterations``
-
-    Otherwise proceeds to ``pr_generator``.
+    Routes back to ``developer`` if the review was rejected and the iteration
+    budget is not exhausted; otherwise proceeds to ``pr_generator``.
     """
     rev = state.review
     if rev is not None and not rev.approved and state.iteration < state.max_iterations:
@@ -532,16 +107,262 @@ def route_after_reviewer(state: SentinelState) -> Literal["developer", "pr_gener
 # ---------------------------------------------------------------------------
 
 
-def build_graph() -> StateGraph:
-    """Build and return the Sentinel Brain LangGraph workflow.
+def build_graph(
+    llm: BaseChatModel,
+    embedder: CodeEmbedder,
+    vector_store: VectorStore,
+) -> StateGraph:
+    """Build the Sentinel Brain LangGraph workflow with injected dependencies.
 
-    Returns a compiled ``StateGraph`` with all nodes wired and
-    conditional edges for the validator→developer and reviewer→developer
-    feedback loops.
+    Args:
+        llm: A LangChain chat model shared by all LLM-powered nodes.
+        embedder: Code embedder used by the ``retrieve_context`` node.
+        vector_store: Qdrant-backed store used by the ``retrieve_context`` node.
+
+    Returns:
+        An uncompiled ``StateGraph`` with all nodes wired and conditional edges
+        for the validator→developer and reviewer→developer feedback loops.
+        Call ``.compile()`` on the result before invoking it.
     """
+
+    # --- Nodes (closures over the injected dependencies) ---
+
+    async def repo_analyzer(state: SentinelState) -> dict:
+        """Analyze repository structure and technology stack from pre-loaded data."""
+        logger.info("Node: %s", REPO_ANALYZER)
+        agent = RepoAnalyzerAgent(llm=llm)
+        repo_context = await agent.analyze(
+            repo_name=state.inputs.repo_name,
+            repo_description=state.inputs.repo_description,
+            file_paths=state.inputs.file_paths,
+            file_languages=state.inputs.file_languages,
+            total_files=state.inputs.total_files,
+        )
+        return {
+            "current_agent": REPO_ANALYZER,
+            "status": SentinelStatus.ANALYZING_REPO,
+            "repo_context": repo_context,
+        }
+
+    async def issue_analyzer(state: SentinelState) -> dict:
+        """Classify each pre-loaded open issue into an IssueAnalysis."""
+        logger.info("Node: %s", ISSUE_ANALYZER)
+
+        if not state.inputs.raw_issues:
+            logger.warning("No open issues provided — skipping issue analysis")
+            return {
+                "current_agent": ISSUE_ANALYZER,
+                "status": SentinelStatus.ANALYZING_ISSUES,
+                "issue_analyses": [],
+            }
+
+        agent = IssueAnalyzerAgent(llm=llm)
+        analyses = await agent.analyze(
+            issues=state.inputs.raw_issues,
+            repo_context=state.repo_context,
+        )
+        return {
+            "current_agent": ISSUE_ANALYZER,
+            "status": SentinelStatus.ANALYZING_ISSUES,
+            "issue_analyses": analyses,
+        }
+
+    async def issue_prioritizer(state: SentinelState) -> dict:
+        """Select the highest-priority issue to work on."""
+        logger.info("Node: %s", ISSUE_PRIORITIZER)
+
+        if not state.issue_analyses:
+            logger.warning("No issue analyses available — cannot prioritize")
+            return {
+                "current_agent": ISSUE_PRIORITIZER,
+                "status": SentinelStatus.PRIORITIZING,
+            }
+
+        agent = IssuePrioritizerAgent(llm=llm)
+        selected_issue = await agent.prioritize(
+            issue_analyses=state.issue_analyses,
+            target_issue_id=state.target_issue_id,
+        )
+        return {
+            "current_agent": ISSUE_PRIORITIZER,
+            "status": SentinelStatus.PRIORITIZING,
+            "selected_issue": selected_issue,
+        }
+
+    async def retrieve_context(state: SentinelState) -> dict:
+        """Retrieve relevant code chunks from Qdrant (deterministic utility node)."""
+        logger.info("Node: %s", RETRIEVE_CONTEXT)
+
+        if not state.selected_issue:
+            logger.warning("No selected issue — skipping context retrieval")
+            return {
+                "current_agent": RETRIEVE_CONTEXT,
+                "status": SentinelStatus.RETRIEVING_CONTEXT,
+                "relevant_chunks": [],
+            }
+
+        # Build semantic search query from issue title + body
+        query_parts = [state.selected_issue.title]
+        if state.selected_issue.body:
+            query_parts.append(state.selected_issue.body)
+        query = " ".join(query_parts)
+
+        collection = state.inputs.collection_name or f"repo_{state.repository_id}"
+
+        agent = RetrieveContextAgent(embedder=embedder, vector_store=vector_store)
+        chunks = await agent.retrieve(collection=collection, query=query, limit=5)
+
+        return {
+            "current_agent": RETRIEVE_CONTEXT,
+            "status": SentinelStatus.RETRIEVING_CONTEXT,
+            "relevant_chunks": chunks,
+        }
+
+    async def planner(state: SentinelState) -> dict:
+        """Create an implementation plan for the selected issue."""
+        logger.info("Node: %s", PLANNER)
+
+        if not state.selected_issue:
+            logger.warning("No selected issue — cannot create plan")
+            return {
+                "current_agent": PLANNER,
+                "status": SentinelStatus.PLANNING,
+            }
+
+        agent = PlannerAgent(llm=llm)
+        plan = await agent.plan(
+            selected_issue=state.selected_issue,
+            repo_context=state.repo_context,
+            retrieved_chunks=state.relevant_chunks,
+        )
+        return {
+            "current_agent": PLANNER,
+            "status": SentinelStatus.PLANNING,
+            "plan": plan,
+        }
+
+    async def developer(state: SentinelState) -> dict:
+        """Generate code changes based on the plan.
+
+        On retry iterations (re-entered from the validator or reviewer feedback
+        loop), it increments ``iteration`` so the loops terminate at
+        ``max_iterations`` rather than only at LangGraph's recursion limit.
+        """
+        logger.info("Node: %s (iteration %d)", DEVELOPER, state.iteration)
+
+        if not state.plan:
+            logger.warning("No plan available — cannot generate code changes")
+            return {
+                "current_agent": DEVELOPER,
+                "status": SentinelStatus.DEVELOPING,
+                "iteration": state.iteration + 1,
+            }
+
+        agent = DeveloperAgent(llm=llm)
+        code_changes = await agent.develop(
+            plan=state.plan,
+            selected_issue=state.selected_issue,
+            repo_context=state.repo_context,
+            retrieved_chunks=state.relevant_chunks,
+        )
+        return {
+            "current_agent": DEVELOPER,
+            "status": SentinelStatus.DEVELOPING,
+            "code_changes": code_changes,
+            "iteration": state.iteration + 1,
+        }
+
+    async def validator(state: SentinelState) -> dict:
+        """Validate the generated code changes."""
+        logger.info("Node: %s", VALIDATOR)
+
+        if not state.code_changes:
+            logger.warning("No code changes to validate")
+            return {
+                "current_agent": VALIDATOR,
+                "status": SentinelStatus.VALIDATING,
+                "validation_result": ValidationResult(
+                    passed=False,
+                    issues=["No code changes were generated."],
+                    suggestions=["Re-run the developer agent."],
+                ),
+            }
+
+        agent = ValidatorAgent(llm=llm)
+        validation_result = await agent.validate(
+            code_changes=state.code_changes,
+            plan=state.plan,
+            selected_issue=state.selected_issue,
+            repo_context=state.repo_context,
+            retrieved_chunks=state.relevant_chunks,
+        )
+        return {
+            "current_agent": VALIDATOR,
+            "status": SentinelStatus.VALIDATING,
+            "validation_result": validation_result,
+        }
+
+    async def test_agent(state: SentinelState) -> dict:
+        """Generate simulated tests for the code changes."""
+        logger.info("Node: %s", TEST_AGENT)
+
+        agent = TestAgent(llm=llm)
+        test_results = await agent.test(
+            code_changes=state.code_changes,
+            plan=state.plan,
+            selected_issue=state.selected_issue,
+            repo_context=state.repo_context,
+            validation_result=state.validation_result,
+        )
+        return {
+            "current_agent": TEST_AGENT,
+            "status": SentinelStatus.TESTING,
+            "test_results": test_results,
+        }
+
+    async def reviewer(state: SentinelState) -> dict:
+        """Review the code changes holistically."""
+        logger.info("Node: %s", REVIEWER)
+
+        agent = ReviewerAgent(llm=llm)
+        review = await agent.review(
+            code_changes=state.code_changes,
+            plan=state.plan,
+            selected_issue=state.selected_issue,
+            repo_context=state.repo_context,
+            validation_result=state.validation_result,
+            test_results=state.test_results,
+        )
+        return {
+            "current_agent": REVIEWER,
+            "status": SentinelStatus.REVIEWING,
+            "review": review,
+        }
+
+    async def pr_generator(state: SentinelState) -> dict:
+        """Generate pull request metadata."""
+        logger.info("Node: %s", PR_GENERATOR)
+
+        agent = PRGeneratorAgent(llm=llm)
+        draft = await agent.generate_pr(
+            code_changes=state.code_changes,
+            plan=state.plan,
+            selected_issue=state.selected_issue,
+            repo_context=state.repo_context,
+            validation_result=state.validation_result,
+            test_results=state.test_results,
+            review=state.review,
+        )
+        return {
+            "current_agent": PR_GENERATOR,
+            "status": SentinelStatus.GENERATING_PR,
+            "pull_request_draft": draft,
+        }
+
+    # --- Assemble the graph ---
+
     graph = StateGraph(SentinelState)
 
-    # --- Register nodes ---
     graph.add_node(REPO_ANALYZER, repo_analyzer)
     graph.add_node(ISSUE_ANALYZER, issue_analyzer)
     graph.add_node(ISSUE_PRIORITIZER, issue_prioritizer)

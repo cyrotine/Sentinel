@@ -299,6 +299,41 @@ class ValidationResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Pre-loaded inputs
+# ---------------------------------------------------------------------------
+
+
+class BrainInputs(BaseModel):
+    """Repository data pre-loaded from Postgres before the graph runs.
+
+    The graph nodes are pure: they never touch the database.  The application's
+    ``BrainService`` queries Postgres once and packs the results here so the
+    ``repo_analyzer``, ``issue_analyzer``, and ``retrieve_context`` nodes can read
+    everything they need from typed state.
+
+    ``raw_issues`` is intentionally ``list[dict]`` because the existing
+    :meth:`IssueAnalyzerAgent.analyze` contract accepts plain issue dicts.
+    """
+
+    repo_name: str = Field(default="", description="Full repository name (owner/name)")
+    repo_description: str = Field(default="", description="GitHub repository description")
+    file_paths: list[str] = Field(
+        default_factory=list, description="Relative file paths from the repository"
+    )
+    file_languages: dict[str, str | None] = Field(
+        default_factory=dict, description="Mapping of file path → detected language"
+    )
+    total_files: int = Field(default=0, description="Total number of source files")
+    raw_issues: list[dict] = Field(
+        default_factory=list,
+        description="Open issues as dicts (issue_id, number, title, body, labels, state)",
+    )
+    collection_name: str = Field(
+        default="", description="Qdrant collection name for this repository"
+    )
+
+
+# ---------------------------------------------------------------------------
 # SentinelState — the central workflow state
 # ---------------------------------------------------------------------------
 
@@ -327,6 +362,13 @@ class SentinelState(BaseModel):
     target_issue_id: str | None = Field(
         default=None,
         description="Specific issue to work on.  None = let the Brain select.",
+    )
+    agent_run_id: str = Field(
+        default="", description="UUID of the AgentRun row tracking this execution"
+    )
+    inputs: BrainInputs = Field(
+        default_factory=BrainInputs,
+        description="Repository data pre-loaded from Postgres by BrainService",
     )
 
     # --- Phase 1: Understand (repo_analyzer, issue_analyzer) ---
