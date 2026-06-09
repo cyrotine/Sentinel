@@ -384,17 +384,37 @@ async def validator(state: SentinelState) -> dict:
     }
 
 
-def test_agent(state: SentinelState) -> dict:
-    """Generate test cases for the code changes.
+async def test_agent(state: SentinelState) -> dict:
+    """Generate simulated tests for the code changes.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini to produce test cases
-    and write ``test_results``.
+    Determines what verification activities should be performed,
+    focusing on high-value checks and Planner alignment.
     """
     logger.info("Node: %s", TEST_AGENT)
+
+    from app.config import settings
+    from forge_agents.test_agent import TestAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.2,
+    )
+    agent = TestAgent(llm=llm)
+
+    test_results = await agent.test(
+        code_changes=state.code_changes,
+        plan=state.plan,
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        validation_result=state.validation_result,
+    )
+
     return {
         "current_agent": TEST_AGENT,
         "status": SentinelStatus.TESTING,
+        "test_results": test_results,
     }
 
 

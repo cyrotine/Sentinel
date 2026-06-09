@@ -5,6 +5,7 @@ from forge_agents.issue_prioritizer import IssuePrioritizerAgent
 from forge_agents.planner import PlannerAgent
 from forge_agents.repo_analyzer import RepoAnalyzerAgent
 from forge_agents.retrieve_context import RetrieveContextAgent
+from forge_agents.test_agent import TestAgent
 from forge_agents.validator import ValidatorAgent
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "PlannerAgent",
     "RepoAnalyzerAgent",
     "RetrieveContextAgent",
+    "TestAgent",
     "ValidatorAgent",
 ]
 
