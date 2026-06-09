@@ -56,10 +56,11 @@ class VectorStore:
         query: list[float],
         limit: int = 10,
     ) -> list[SearchResult]:
-        results = await self._client.search(
+        results = await self._client.query_points(
             collection_name=collection,
-            query_vector=query,
+            query=query,
             limit=limit,
+            with_payload=True,
         )
         return [
             SearchResult(
@@ -67,7 +68,7 @@ class VectorStore:
                 score=r.score,
                 payload=r.payload or {},
             )
-            for r in results
+            for r in results.points
         ]
 
     async def delete_collection(self, collection: str) -> None:

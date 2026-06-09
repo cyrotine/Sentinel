@@ -36,11 +36,12 @@ class Issue(BaseModel):
 class GitHubClient:
     def __init__(self, token: str) -> None:
         self._token = token
-        self._headers = {
-            "Authorization": f"Bearer {token}",
+        self._headers: dict[str, str] = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+        if token:
+            self._headers["Authorization"] = f"Bearer {token}"
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
