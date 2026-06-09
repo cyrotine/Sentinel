@@ -418,17 +418,39 @@ async def test_agent(state: SentinelState) -> dict:
     }
 
 
-def reviewer(state: SentinelState) -> dict:
+async def reviewer(state: SentinelState) -> dict:
     """Review the code changes holistically.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini to perform a code review
-    and write ``review`` with approval/rejection and suggestions.
+    Performs a simulated PR review evaluating validation and testing results,
+    Planner alignment, and patch scope. Routes back to developer on failure
+    if iterations allow, otherwise routes to PR generation.
     """
     logger.info("Node: %s", REVIEWER)
+
+    from app.config import settings
+    from forge_agents.reviewer import ReviewerAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.2,
+    )
+    agent = ReviewerAgent(llm=llm)
+
+    review = await agent.review(
+        code_changes=state.code_changes,
+        plan=state.plan,
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        validation_result=state.validation_result,
+        test_results=state.test_results,
+    )
+
     return {
         "current_agent": REVIEWER,
         "status": SentinelStatus.REVIEWING,
+        "review": review,
     }
 
 
