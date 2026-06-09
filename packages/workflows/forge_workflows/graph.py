@@ -257,17 +257,42 @@ async def retrieve_context(state: SentinelState) -> dict:
     }
 
 
-def planner(state: SentinelState) -> dict:
+async def planner(state: SentinelState) -> dict:
     """Create an implementation plan for the selected issue.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini with the issue, repo context,
-    and relevant code chunks to produce a ``Plan``.
+    Synthesizes the selected issue, repository context, and retrieved
+    code chunks into a structured Plan with ordered tasks.
     """
     logger.info("Node: %s", PLANNER)
+
+    from app.config import settings
+    from forge_agents.planner import PlannerAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    if not state.selected_issue:
+        logger.warning("No selected issue — cannot create plan")
+        return {
+            "current_agent": PLANNER,
+            "status": SentinelStatus.PLANNING,
+        }
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.2,
+    )
+    agent = PlannerAgent(llm=llm)
+
+    plan = await agent.plan(
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        retrieved_chunks=state.relevant_chunks,
+    )
+
     return {
         "current_agent": PLANNER,
         "status": SentinelStatus.PLANNING,
+        "plan": plan,
     }
 
 
