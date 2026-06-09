@@ -106,31 +106,105 @@ async def repo_analyzer(state: SentinelState) -> dict:
     }
 
 
-def issue_analyzer(state: SentinelState) -> dict:
+async def issue_analyzer(state: SentinelState) -> dict:
     """Analyze open issues for the repository.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will load issues from Postgres, call Gemini
-    for each issue, and write ``issue_analyses``.
+    Loads issues from Postgres (issue_repo) and calls the
+    IssueAnalyzerAgent to classify each one into an IssueAnalysis.
     """
     logger.info("Node: %s", ISSUE_ANALYZER)
+
+    import uuid
+    from app.database import AsyncSessionLocal
+    from app.repositories import issue_repo
+    from app.config import settings
+    from forge_agents.issue_analyzer import IssueAnalyzerAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    repo_id = uuid.UUID(state.repository_id)
+
+    async with AsyncSessionLocal() as session:
+        total, issues = await issue_repo.list_for_repo(
+            session, repo_id, state="open", limit=200
+        )
+
+    if not issues:
+        logger.warning("No open issues found for repository %s", repo_id)
+        return {
+            "current_agent": ISSUE_ANALYZER,
+            "status": SentinelStatus.ANALYZING_ISSUES,
+            "issue_analyses": [],
+        }
+
+    # Convert ORM Issue objects to plain dicts for the pure agent
+    issue_dicts = [
+        {
+            "issue_id": str(issue.id),
+            "number": issue.number,
+            "title": issue.title,
+            "body": issue.body or "",
+            "labels": issue.labels or [],
+            "state": issue.state,
+        }
+        for issue in issues
+    ]
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.2,
+    )
+    agent = IssueAnalyzerAgent(llm=llm)
+
+    analyses = await agent.analyze(
+        issues=issue_dicts,
+        repo_context=state.repo_context,
+    )
+
     return {
         "current_agent": ISSUE_ANALYZER,
         "status": SentinelStatus.ANALYZING_ISSUES,
+        "issue_analyses": analyses,
     }
 
 
-def issue_prioritizer(state: SentinelState) -> dict:
+
+async def issue_prioritizer(state: SentinelState) -> dict:
     """Select the highest-priority issue to work on.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will rank ``issue_analyses`` (or use
-    ``target_issue_id`` if provided) and write ``selected_issue``.
+    Consumes ``state.issue_analyses`` from the prior issue_analyzer node
+    and calls the IssuePrioritizerAgent to select a single issue.
+    Supports ``state.target_issue_id`` to bypass LLM ranking.
     """
     logger.info("Node: %s", ISSUE_PRIORITIZER)
+
+    from app.config import settings
+    from forge_agents.issue_prioritizer import IssuePrioritizerAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    if not state.issue_analyses:
+        logger.warning("No issue analyses available — cannot prioritize")
+        return {
+            "current_agent": ISSUE_PRIORITIZER,
+            "status": SentinelStatus.PRIORITIZING,
+        }
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.2,
+    )
+    agent = IssuePrioritizerAgent(llm=llm)
+
+    selected_issue = await agent.prioritize(
+        issue_analyses=state.issue_analyses,
+        target_issue_id=state.target_issue_id,
+    )
+
     return {
         "current_agent": ISSUE_PRIORITIZER,
         "status": SentinelStatus.PRIORITIZING,
+        "selected_issue": selected_issue,
     }
 
 
