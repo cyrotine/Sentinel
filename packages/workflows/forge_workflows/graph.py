@@ -296,18 +296,44 @@ async def planner(state: SentinelState) -> dict:
     }
 
 
-def developer(state: SentinelState) -> dict:
+async def developer(state: SentinelState) -> dict:
     """Generate code changes based on the plan.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini with the plan and relevant
-    code to produce ``code_changes``.  On retry iterations, it also
-    receives ``validation_result`` or ``review`` feedback.
+    Translates the implementation plan into concrete CodeChange objects
+    containing unified diffs. On retry iterations, it also receives
+    ``validation_result`` or ``review`` feedback.
     """
     logger.info("Node: %s (iteration %d)", DEVELOPER, state.iteration)
+
+    from app.config import settings
+    from forge_agents.developer import DeveloperAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    if not state.plan:
+        logger.warning("No plan available — cannot generate code changes")
+        return {
+            "current_agent": DEVELOPER,
+            "status": SentinelStatus.DEVELOPING,
+        }
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.1,
+    )
+    agent = DeveloperAgent(llm=llm)
+
+    code_changes = await agent.develop(
+        plan=state.plan,
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        retrieved_chunks=state.relevant_chunks,
+    )
+
     return {
         "current_agent": DEVELOPER,
         "status": SentinelStatus.DEVELOPING,
+        "code_changes": code_changes,
     }
 
 
