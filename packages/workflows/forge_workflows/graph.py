@@ -31,7 +31,7 @@ from typing import Literal
 
 from langgraph.graph import END, START, StateGraph
 
-from forge_workflows.state import SentinelState, SentinelStatus
+from forge_workflows.state import SentinelState, SentinelStatus, ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -296,74 +296,197 @@ async def planner(state: SentinelState) -> dict:
     }
 
 
-def developer(state: SentinelState) -> dict:
+async def developer(state: SentinelState) -> dict:
     """Generate code changes based on the plan.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini with the plan and relevant
-    code to produce ``code_changes``.  On retry iterations, it also
-    receives ``validation_result`` or ``review`` feedback.
+    Translates the implementation plan into concrete CodeChange objects
+    containing unified diffs. On retry iterations, it also receives
+    ``validation_result`` or ``review`` feedback.
     """
     logger.info("Node: %s (iteration %d)", DEVELOPER, state.iteration)
+
+    from app.config import settings
+    from forge_agents.developer import DeveloperAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    if not state.plan:
+        logger.warning("No plan available — cannot generate code changes")
+        return {
+            "current_agent": DEVELOPER,
+            "status": SentinelStatus.DEVELOPING,
+        }
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.1,
+    )
+    agent = DeveloperAgent(llm=llm)
+
+    code_changes = await agent.develop(
+        plan=state.plan,
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        retrieved_chunks=state.relevant_chunks,
+    )
+
     return {
         "current_agent": DEVELOPER,
         "status": SentinelStatus.DEVELOPING,
+        "code_changes": code_changes,
     }
 
 
-def validator(state: SentinelState) -> dict:
+async def validator(state: SentinelState) -> dict:
     """Validate the generated code changes.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini to check code correctness,
-    consistency with the plan, and write ``validation_result``.
+    Checks that code changes are safe, sufficient, and aligned with the
+    implementation plan. Routes back to developer on failure via
+    ``route_after_validator``.
     """
     logger.info("Node: %s", VALIDATOR)
+
+    from app.config import settings
+    from forge_agents.validator import ValidatorAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    if not state.code_changes:
+        logger.warning("No code changes to validate")
+        return {
+            "current_agent": VALIDATOR,
+            "status": SentinelStatus.VALIDATING,
+            "validation_result": ValidationResult(
+                passed=False,
+                issues=["No code changes were generated."],
+                suggestions=["Re-run the developer agent."],
+            ),
+        }
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.1,
+    )
+    agent = ValidatorAgent(llm=llm)
+
+    validation_result = await agent.validate(
+        code_changes=state.code_changes,
+        plan=state.plan,
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        retrieved_chunks=state.relevant_chunks,
+    )
+
     return {
         "current_agent": VALIDATOR,
         "status": SentinelStatus.VALIDATING,
+        "validation_result": validation_result,
     }
 
 
-def test_agent(state: SentinelState) -> dict:
-    """Generate test cases for the code changes.
+async def test_agent(state: SentinelState) -> dict:
+    """Generate simulated tests for the code changes.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini to produce test cases
-    and write ``test_results``.
+    Determines what verification activities should be performed,
+    focusing on high-value checks and Planner alignment.
     """
     logger.info("Node: %s", TEST_AGENT)
+
+    from app.config import settings
+    from forge_agents.test_agent import TestAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.2,
+    )
+    agent = TestAgent(llm=llm)
+
+    test_results = await agent.test(
+        code_changes=state.code_changes,
+        plan=state.plan,
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        validation_result=state.validation_result,
+    )
+
     return {
         "current_agent": TEST_AGENT,
         "status": SentinelStatus.TESTING,
+        "test_results": test_results,
     }
 
 
-def reviewer(state: SentinelState) -> dict:
+async def reviewer(state: SentinelState) -> dict:
     """Review the code changes holistically.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini to perform a code review
-    and write ``review`` with approval/rejection and suggestions.
+    Performs a simulated PR review evaluating validation and testing results,
+    Planner alignment, and patch scope. Routes back to developer on failure
+    if iterations allow, otherwise routes to PR generation.
     """
     logger.info("Node: %s", REVIEWER)
+
+    from app.config import settings
+    from forge_agents.reviewer import ReviewerAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.2,
+    )
+    agent = ReviewerAgent(llm=llm)
+
+    review = await agent.review(
+        code_changes=state.code_changes,
+        plan=state.plan,
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        validation_result=state.validation_result,
+        test_results=state.test_results,
+    )
+
     return {
         "current_agent": REVIEWER,
         "status": SentinelStatus.REVIEWING,
+        "review": review,
     }
 
 
-def pr_generator(state: SentinelState) -> dict:
+async def pr_generator(state: SentinelState) -> dict:
     """Generate pull request metadata.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini to produce a PR title,
-    body, and branch name, then write ``pull_request_draft``.
+    Synthesizes all evidence into a PullRequestDraft, creating a professional
+    review summary, branch names, and merge recommendations.
     """
     logger.info("Node: %s", PR_GENERATOR)
+
+    from app.config import settings
+    from forge_agents.pr_generator import PRGeneratorAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.2,
+    )
+    agent = PRGeneratorAgent(llm=llm)
+
+    draft = await agent.generate_pr(
+        code_changes=state.code_changes,
+        plan=state.plan,
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        validation_result=state.validation_result,
+        test_results=state.test_results,
+        review=state.review,
+    )
+
     return {
         "current_agent": PR_GENERATOR,
         "status": SentinelStatus.GENERATING_PR,
+        "pull_request_draft": draft,
     }
 
 
