@@ -31,7 +31,7 @@ from typing import Literal
 
 from langgraph.graph import END, START, StateGraph
 
-from forge_workflows.state import SentinelState, SentinelStatus
+from forge_workflows.state import SentinelState, SentinelStatus, ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -337,17 +337,50 @@ async def developer(state: SentinelState) -> dict:
     }
 
 
-def validator(state: SentinelState) -> dict:
+async def validator(state: SentinelState) -> dict:
     """Validate the generated code changes.
 
-    Placeholder — updates ``current_agent`` and ``status`` only.
-    Real implementation will call Gemini to check code correctness,
-    consistency with the plan, and write ``validation_result``.
+    Checks that code changes are safe, sufficient, and aligned with the
+    implementation plan. Routes back to developer on failure via
+    ``route_after_validator``.
     """
     logger.info("Node: %s", VALIDATOR)
+
+    from app.config import settings
+    from forge_agents.validator import ValidatorAgent
+    from langchain_google_genai import ChatGoogleGenerativeAI
+
+    if not state.code_changes:
+        logger.warning("No code changes to validate")
+        return {
+            "current_agent": VALIDATOR,
+            "status": SentinelStatus.VALIDATING,
+            "validation_result": ValidationResult(
+                passed=False,
+                issues=["No code changes were generated."],
+                suggestions=["Re-run the developer agent."],
+            ),
+        }
+
+    llm = ChatGoogleGenerativeAI(
+        model=settings.brain_llm_model,
+        google_api_key=settings.google_api_key,
+        temperature=0.1,
+    )
+    agent = ValidatorAgent(llm=llm)
+
+    validation_result = await agent.validate(
+        code_changes=state.code_changes,
+        plan=state.plan,
+        selected_issue=state.selected_issue,
+        repo_context=state.repo_context,
+        retrieved_chunks=state.relevant_chunks,
+    )
+
     return {
         "current_agent": VALIDATOR,
         "status": SentinelStatus.VALIDATING,
+        "validation_result": validation_result,
     }
 
 
