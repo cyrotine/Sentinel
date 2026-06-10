@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def _parse_github_url(url: str) -> tuple[str, str]:
@@ -20,6 +20,7 @@ def _parse_github_url(url: str) -> tuple[str, str]:
 
 class RepositoryCreate(BaseModel):
     github_url: str
+    github_pat: str | None = Field(default=None, exclude=True)
 
     @field_validator("github_url")
     @classmethod
