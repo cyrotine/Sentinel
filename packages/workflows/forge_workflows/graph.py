@@ -12,8 +12,7 @@ Graph topology::
 
     START
       → repo_analyzer
-      → issue_analyzer
-      → issue_prioritizer
+      → issue_analyzer   (filters to user-selected issue, promotes to selected_issue)
       → retrieve_context
       → planner
       → developer
@@ -37,7 +36,6 @@ from langgraph.graph import END, START, StateGraph
 
 from forge_agents.developer import DeveloperAgent
 from forge_agents.issue_analyzer import IssueAnalyzerAgent
-from forge_agents.issue_prioritizer import IssuePrioritizerAgent
 from forge_agents.planner import PlannerAgent
 from forge_agents.pr_generator import PRGeneratorAgent
 from forge_agents.repo_analyzer import RepoAnalyzerAgent
@@ -45,7 +43,7 @@ from forge_agents.retrieve_context import RetrieveContextAgent
 from forge_agents.reviewer import ReviewerAgent
 from forge_agents.test_agent import TestAgent
 from forge_agents.validator import ValidatorAgent
-from forge_workflows.state import SentinelState, SentinelStatus, ValidationResult
+from forge_workflows.state import IssueAnalysis, SelectedIssue, SentinelState, SentinelStatus, ValidationResult
 
 if TYPE_CHECKING:
     from forge_repository_analysis.embedder import CodeEmbedder
@@ -61,7 +59,6 @@ logger = logging.getLogger(__name__)
 
 REPO_ANALYZER = "repo_analyzer"
 ISSUE_ANALYZER = "issue_analyzer"
-ISSUE_PRIORITIZER = "issue_prioritizer"
 RETRIEVE_CONTEXT = "retrieve_context"
 PLANNER = "planner"
 DEVELOPER = "developer"
@@ -107,6 +104,15 @@ def route_after_reviewer(state: SentinelState) -> Literal["developer", "pr_gener
 # ---------------------------------------------------------------------------
 
 
+def _estimate_complexity(analysis: IssueAnalysis) -> str:
+    area_count = len(analysis.affected_areas)
+    if analysis.issue_type in ("refactor", "feature") and area_count > 3:
+        return "high"
+    if area_count > 1 or analysis.issue_type == "feature":
+        return "medium"
+    return "low"
+
+
 def build_graph(
     llm: BaseChatModel,
     embedder: CodeEmbedder,
@@ -145,48 +151,47 @@ def build_graph(
         }
 
     async def issue_analyzer(state: SentinelState) -> dict:
-        """Classify each pre-loaded open issue into an IssueAnalysis."""
+        """Filter to the user-selected issue, classify it, and promote to selected_issue."""
         logger.info("Node: %s", ISSUE_ANALYZER)
 
-        if not state.inputs.raw_issues:
-            logger.warning("No open issues provided — skipping issue analysis")
-            return {
-                "current_agent": ISSUE_ANALYZER,
-                "status": SentinelStatus.ANALYZING_ISSUES,
-                "issue_analyses": [],
-            }
+        if not state.target_issue_id:
+            raise ValueError(
+                "target_issue_id is required — select an issue before starting a run"
+            )
 
+        issues_to_analyze = [
+            i for i in state.inputs.raw_issues if i["issue_id"] == state.target_issue_id
+        ]
+        if not issues_to_analyze:
+            raise ValueError(
+                f"target_issue_id {state.target_issue_id!r} not found in raw_issues"
+            )
+
+        logger.info("Targeted analysis: issue_id=%s only", state.target_issue_id)
         agent = IssueAnalyzerAgent(llm=llm)
         analyses = await agent.analyze(
-            issues=state.inputs.raw_issues,
+            issues=issues_to_analyze,
             repo_context=state.repo_context,
         )
+
+        analysis = analyses[0]
+        selected = SelectedIssue(
+            issue_id=analysis.issue_id,
+            number=analysis.number,
+            title=analysis.title,
+            body=analysis.body,
+            reasoning=(
+                f"User-selected issue #{analysis.number}: "
+                f"{analysis.issue_type}/{analysis.severity}."
+            ),
+            estimated_complexity=_estimate_complexity(analysis),
+        )
+
         return {
             "current_agent": ISSUE_ANALYZER,
             "status": SentinelStatus.ANALYZING_ISSUES,
             "issue_analyses": analyses,
-        }
-
-    async def issue_prioritizer(state: SentinelState) -> dict:
-        """Select the highest-priority issue to work on."""
-        logger.info("Node: %s", ISSUE_PRIORITIZER)
-
-        if not state.issue_analyses:
-            logger.warning("No issue analyses available — cannot prioritize")
-            return {
-                "current_agent": ISSUE_PRIORITIZER,
-                "status": SentinelStatus.PRIORITIZING,
-            }
-
-        agent = IssuePrioritizerAgent(llm=llm)
-        selected_issue = await agent.prioritize(
-            issue_analyses=state.issue_analyses,
-            target_issue_id=state.target_issue_id,
-        )
-        return {
-            "current_agent": ISSUE_PRIORITIZER,
-            "status": SentinelStatus.PRIORITIZING,
-            "selected_issue": selected_issue,
+            "selected_issue": selected,
         }
 
     async def retrieve_context(state: SentinelState) -> dict:
@@ -365,7 +370,6 @@ def build_graph(
 
     graph.add_node(REPO_ANALYZER, repo_analyzer)
     graph.add_node(ISSUE_ANALYZER, issue_analyzer)
-    graph.add_node(ISSUE_PRIORITIZER, issue_prioritizer)
     graph.add_node(RETRIEVE_CONTEXT, retrieve_context)
     graph.add_node(PLANNER, planner)
     graph.add_node(DEVELOPER, developer)
@@ -377,8 +381,7 @@ def build_graph(
     # --- Linear edges ---
     graph.add_edge(START, REPO_ANALYZER)
     graph.add_edge(REPO_ANALYZER, ISSUE_ANALYZER)
-    graph.add_edge(ISSUE_ANALYZER, ISSUE_PRIORITIZER)
-    graph.add_edge(ISSUE_PRIORITIZER, RETRIEVE_CONTEXT)
+    graph.add_edge(ISSUE_ANALYZER, RETRIEVE_CONTEXT)
     graph.add_edge(RETRIEVE_CONTEXT, PLANNER)
     graph.add_edge(PLANNER, DEVELOPER)
 

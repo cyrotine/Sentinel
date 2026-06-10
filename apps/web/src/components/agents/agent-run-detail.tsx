@@ -116,10 +116,21 @@ export function AgentRunDetail({ runId }: { runId: string }) {
 
       {issue && (
         <Section title="Selected issue">
-          <p className="text-sm font-medium text-gray-900">
-            {issue.number != null ? `#${issue.number} · ` : ""}
-            {issue.title}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium text-gray-900">
+              {issue.number != null ? `#${issue.number} · ` : ""}
+              {issue.title}
+            </p>
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
+                run.target_issue_id
+                  ? "bg-blue-100 text-blue-700"
+                  : "bg-gray-100 text-gray-600"
+              }`}
+            >
+              {run.target_issue_id ? "User-selected" : "Auto-selected"}
+            </span>
+          </div>
           {issue.reasoning && <p className="mt-1 text-sm text-gray-500">{issue.reasoning}</p>}
           {issue.estimated_complexity && (
             <p className="mt-1 text-xs text-gray-400">Complexity: {issue.estimated_complexity}</p>
