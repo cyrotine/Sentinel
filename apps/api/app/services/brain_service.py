@@ -28,6 +28,7 @@ _RESULT_FIELDS = (
     "selected_issue",
     "plan",
     "code_changes",
+    "patch_results",
     "review",
     "pull_request_draft",
 )
