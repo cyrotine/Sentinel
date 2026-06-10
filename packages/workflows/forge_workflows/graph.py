@@ -17,6 +17,7 @@ Graph topology::
       → load_full_files  (reads complete files from workspace; populates full_file_contexts)
       → planner
       → developer
+      → apply_patches  (applies CodeChange diffs to the workspace via git apply)
       → validator ──→ (route_after_validator)
       │                  ├─ valid or max retries → test_agent
       │                  └─ invalid              → developer
@@ -30,6 +31,7 @@ Graph topology::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Literal
 
@@ -37,6 +39,7 @@ from langgraph.graph import END, START, StateGraph
 
 from forge_agents.developer import DeveloperAgent
 from forge_agents.file_loader import file_loader
+from forge_agents.patch_executor import patch_executor
 from forge_agents.issue_analyzer import IssueAnalyzerAgent
 from forge_agents.planner import PlannerAgent
 from forge_agents.pr_generator import PRGeneratorAgent
@@ -64,6 +67,7 @@ ISSUE_ANALYZER = "issue_analyzer"
 RETRIEVE_CONTEXT = "retrieve_context"
 PLANNER = "planner"
 DEVELOPER = "developer"
+APPLY_PATCHES = "apply_patches"
 VALIDATOR = "validator"
 TEST_AGENT = "test_agent"
 REVIEWER = "reviewer"
@@ -301,6 +305,35 @@ def build_graph(
             "iteration": state.iteration + 1,
         }
 
+    async def apply_patches(state: SentinelState) -> dict:
+        """Apply the developer's diffs to the real workspace files (deterministic).
+
+        Rolls the workspace back to the pristine clone first so that retry
+        iterations re-apply the full latest diff set against a clean tree, then
+        applies each ``CodeChange`` via the PatchExecutor. Always proceeds to the
+        validator regardless of patch outcome — acting on failures is Phase 7.
+        """
+        logger.info("Node: %s", APPLY_PATCHES)
+        if not state.workspace_path or not state.code_changes:
+            logger.warning(
+                "No workspace or no code changes — skipping patch application"
+            )
+            return {
+                "current_agent": APPLY_PATCHES,
+                "status": SentinelStatus.APPLYING_PATCHES,
+                "patch_results": [],
+            }
+
+        await asyncio.to_thread(patch_executor.rollback_all, state.workspace_path)
+        results = await asyncio.to_thread(
+            patch_executor.apply_all, state.workspace_path, state.code_changes
+        )
+        return {
+            "current_agent": APPLY_PATCHES,
+            "status": SentinelStatus.APPLYING_PATCHES,
+            "patch_results": results,
+        }
+
     async def validator(state: SentinelState) -> dict:
         """Validate the generated code changes."""
         logger.info("Node: %s", VALIDATOR)
@@ -398,6 +431,7 @@ def build_graph(
     graph.add_node(LOAD_FULL_FILES, load_full_files)
     graph.add_node(PLANNER, planner)
     graph.add_node(DEVELOPER, developer)
+    graph.add_node(APPLY_PATCHES, apply_patches)
     graph.add_node(VALIDATOR, validator)
     graph.add_node(TEST_AGENT, test_agent)
     graph.add_node(REVIEWER, reviewer)
@@ -411,8 +445,11 @@ def build_graph(
     graph.add_edge(LOAD_FULL_FILES, PLANNER)
     graph.add_edge(PLANNER, DEVELOPER)
 
+    # --- Patch application: apply the developer's diffs to the workspace ---
+    graph.add_edge(DEVELOPER, APPLY_PATCHES)
+    graph.add_edge(APPLY_PATCHES, VALIDATOR)
+
     # --- Conditional: validator decides retry or proceed ---
-    graph.add_edge(DEVELOPER, VALIDATOR)
     graph.add_conditional_edges(
         VALIDATOR,
         route_after_validator,

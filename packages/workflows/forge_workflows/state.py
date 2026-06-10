@@ -49,6 +49,7 @@ class SentinelStatus(str, Enum):
     LOADING_FILES = "loading_files"
     PLANNING = "planning"
     DEVELOPING = "developing"
+    APPLYING_PATCHES = "applying_patches"
     VALIDATING = "validating"
     TESTING = "testing"
     REVIEWING = "reviewing"
@@ -152,6 +153,33 @@ class CodeChange(BaseModel):
     patch: str = Field(..., description="Unified diff or full replacement content")
     description: str = Field(
         ..., description="Human-readable summary of what changed and why"
+    )
+
+
+class PatchResult(BaseModel):
+    """Outcome of applying a single :class:`CodeChange` to the workspace.
+
+    Produced by the ``apply_patches`` graph node via the ``PatchExecutor``.
+    On failure, ``failed_patch`` and ``full_file_content`` carry the context the
+    auto-repair loop (Phase 7) needs to ask the Developer to regenerate the diff.
+    """
+
+    file_path: str = Field(..., description="Relative path of the patched file")
+    applied: bool = Field(..., description="Whether the patch applied cleanly")
+    strategy: str = Field(
+        default="",
+        description="How it applied: 'git-apply', 'git-apply-3way', or '' on failure",
+    )
+    error: str | None = Field(
+        default=None, description="git stderr / failure reason when applied is False"
+    )
+    failed_patch: str | None = Field(
+        default=None,
+        description="The original unified diff that failed, echoed back for LLM retry",
+    )
+    full_file_content: str | None = Field(
+        default=None,
+        description="Current on-disk content of the target file, for LLM-regeneration context",
     )
 
 
@@ -433,6 +461,10 @@ class SentinelState(BaseModel):
     code_changes: list[CodeChange] = Field(
         default_factory=list,
         description="File modifications produced by the Developer agent",
+    )
+    patch_results: list[PatchResult] = Field(
+        default_factory=list,
+        description="Results of applying each CodeChange to the workspace",
     )
 
     # --- Phase 6: Validate (validator, test_agent, reviewer) ---
