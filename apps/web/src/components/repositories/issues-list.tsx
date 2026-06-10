@@ -1,6 +1,40 @@
+"use client"
+
+import { useState } from "react"
+import { useRouter } from "next/navigation"
+import { startAgentRun } from "@/lib/api"
 import type { IssueOut } from "@/lib/api"
 
-export function IssuesList({ issues, total }: { issues: IssueOut[]; total: number }) {
+interface Props {
+  issues: IssueOut[]
+  total: number
+  repositoryId: string
+}
+
+export function IssuesList({ issues, total, repositoryId }: Props) {
+  const router = useRouter()
+  const [tacklingId, setTacklingId] = useState<string | null>(null)
+  const [tackleErrors, setTackleErrors] = useState<Record<string, string>>({})
+
+  async function handleTackle(issueId: string) {
+    setTacklingId(issueId)
+    setTackleErrors((prev) => {
+      const next = { ...prev }
+      delete next[issueId]
+      return next
+    })
+    try {
+      const { run_id } = await startAgentRun({ repository_id: repositoryId, target_issue_id: issueId })
+      router.push(`/agents/${run_id}`)
+    } catch (e) {
+      setTackleErrors((prev) => ({
+        ...prev,
+        [issueId]: e instanceof Error ? e.message : "Failed to start run",
+      }))
+      setTacklingId(null)
+    }
+  }
+
   if (issues.length === 0) {
     return (
       <div className="rounded-lg border border-gray-200 bg-white p-4">
@@ -22,7 +56,7 @@ export function IssuesList({ issues, total }: { issues: IssueOut[]; total: numbe
             <span className="shrink-0 text-xs font-mono text-gray-400 mt-0.5">
               #{issue.number}
             </span>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-sm text-gray-800">{issue.title}</p>
               {issue.labels.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-1">
@@ -36,7 +70,17 @@ export function IssuesList({ issues, total }: { issues: IssueOut[]; total: numbe
                   ))}
                 </div>
               )}
+              {tackleErrors[issue.id] && (
+                <p className="mt-1 text-xs text-red-600">{tackleErrors[issue.id]}</p>
+              )}
             </div>
+            <button
+              onClick={() => handleTackle(issue.id)}
+              disabled={tacklingId !== null}
+              className="shrink-0 rounded-md bg-gray-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+            >
+              {tacklingId === issue.id ? "…" : "Tackle"}
+            </button>
           </li>
         ))}
       </ul>

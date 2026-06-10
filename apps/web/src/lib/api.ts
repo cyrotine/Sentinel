@@ -182,7 +182,7 @@ export async function fetchAgentRun(runId: string): Promise<AgentRunOut> {
 
 export async function startAgentRun(body: {
   repository_id: string
-  target_issue_id?: string | null
+  target_issue_id: string
 }): Promise<AgentRunCreatedOut> {
   return apiFetch<AgentRunCreatedOut>("/agent-runs", {
     method: "POST",

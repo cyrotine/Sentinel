@@ -78,7 +78,7 @@ export default async function RepositoryDetailPage({ params }: Props) {
         <>
           <LanguageBreakdown files={fileData.files} />
           <FileTree files={fileData.files} />
-          <IssuesList issues={issueData.issues} total={issueData.total} />
+          <IssuesList issues={issueData.issues} total={issueData.total} repositoryId={id} />
         </>
       )}
 

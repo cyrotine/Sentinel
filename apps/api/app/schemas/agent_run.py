@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 class AgentRunCreate(BaseModel):
     repository_id: uuid.UUID
-    target_issue_id: uuid.UUID | None = None
+    target_issue_id: uuid.UUID
 
 
 class AgentRunCreatedOut(BaseModel):
