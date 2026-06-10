@@ -5,6 +5,7 @@ import Link from "next/link"
 import { fetchAgentRun } from "@/lib/api"
 import type { AgentRunOut } from "@/lib/api"
 import { StatusBadge } from "@/components/ui/status-badge"
+import { DiffViewer } from "@/components/agents/diff-viewer"
 
 const TERMINAL = new Set(["completed", "failed"])
 const POLL_INTERVAL_MS = 2000
@@ -35,6 +36,7 @@ interface SelectedIssueShape {
 }
 interface CodeChangeShape {
   file_path?: string
+  patch?: string
   description?: string
 }
 
@@ -160,14 +162,16 @@ export function AgentRunDetail({ runId }: { runId: string }) {
 
       {changes.length > 0 && (
         <Section title={`Code changes (${changes.length})`}>
-          <ul className="space-y-2 text-sm">
+          <div className="space-y-3">
             {changes.map((c, i) => (
-              <li key={c.file_path ?? i}>
-                <span className="font-mono text-xs text-gray-900">{c.file_path}</span>
-                {c.description && <p className="text-gray-500">{c.description}</p>}
-              </li>
+              <DiffViewer
+                key={c.file_path ?? i}
+                filePath={c.file_path ?? ""}
+                patch={c.patch ?? ""}
+                description={c.description ?? ""}
+              />
             ))}
-          </ul>
+          </div>
         </Section>
       )}
 
