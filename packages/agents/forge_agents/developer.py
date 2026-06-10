@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from forge_workflows.state import (
     CodeChange,
+    FullFileContext,
     Plan,
     RepoContext,
     RetrievedChunk,
@@ -56,6 +57,7 @@ class DeveloperAgent:
         selected_issue: SelectedIssue,
         repo_context: RepoContext,
         retrieved_chunks: list[RetrievedChunk],
+        full_file_contexts: list[FullFileContext],
     ) -> list[CodeChange]:
         """Generate code changes based on the implementation plan.
 
@@ -76,7 +78,7 @@ class DeveloperAgent:
             len(plan.affected_files),
         )
 
-        prompt = self._build_prompt(plan, selected_issue, repo_context, retrieved_chunks)
+        prompt = self._build_prompt(plan, selected_issue, repo_context, retrieved_chunks, full_file_contexts)
 
         try:
             response = await self._llm.ainvoke(prompt)
@@ -99,6 +101,7 @@ class DeveloperAgent:
         issue: SelectedIssue,
         repo_context: RepoContext,
         chunks: list[RetrievedChunk],
+        full_file_contexts: list[FullFileContext],
     ) -> str:
         """Construct the code generation prompt for the LLM."""
 
@@ -123,19 +126,39 @@ class DeveloperAgent:
             for t in plan.tasks:
                 plan_block += f"  [{t.id}] {t.description}\n"
 
-        # Current code (retrieved chunks)
-        if chunks:
-            code_entries = []
-            for chunk in chunks:
-                entry = (
-                    f"  File: {chunk.file_path} "
-                    f"(lines {chunk.start_line}-{chunk.end_line}, {chunk.language})\n"
-                    f"  ```{chunk.language}\n{chunk.content}\n  ```"
+        # Full file contents for affected files (ground-truth for diff generation)
+        full_file_map = {fc.file_path: fc for fc in full_file_contexts}
+        full_file_entries = []
+        for file_path in plan.affected_files:
+            fc = full_file_map.get(file_path)
+            if fc:
+                lang = fc.language or ""
+                numbered = "\n".join(
+                    f"{i + 1:4d} | {line}"
+                    for i, line in enumerate(fc.content.splitlines())
                 )
-                code_entries.append(entry)
-            code_block = "\n\n".join(code_entries)
+                full_file_entries.append(
+                    f"  ### {file_path} ({fc.line_count} lines, {lang})\n"
+                    f"  ```{lang}\n{numbered}\n  ```"
+                )
+        full_files_block = (
+            "\n\n".join(full_file_entries)
+            if full_file_entries
+            else "  (No full file context available — workspace not cloned)"
+        )
+
+        # Supplementary Qdrant chunks for files not covered by full file loading
+        covered = set(full_file_map)
+        supplementary = [c for c in chunks if c.file_path not in covered]
+        if supplementary:
+            chunk_entries = [
+                f"  File: {c.file_path} (lines {c.start_line}-{c.end_line}, {c.language})\n"
+                f"  ```{c.language}\n{c.content}\n  ```"
+                for c in supplementary
+            ]
+            chunks_block = "\n\n".join(chunk_entries)
         else:
-            code_block = "  (No code context available)"
+            chunks_block = "  (All affected files covered by full file context above)"
 
         return f"""You are a senior software engineer implementing code changes for an autonomous AI coding agent called Sentinel.
 
@@ -148,8 +171,11 @@ You are executing a pre-approved implementation plan. Your job is to produce the
 Implementation Plan:
 {plan_block}
 
-Current Code:
-{code_block}
+Full File Contents (use these as the ground truth for generating diffs — line numbers are exact):
+{full_files_block}
+
+Additional Context (Qdrant chunks for files not listed above):
+{chunks_block}
 
 Requirements:
 1. Generate ONLY the changes described in the plan.

@@ -14,6 +14,7 @@ Graph topology::
       → repo_analyzer
       → issue_analyzer   (filters to user-selected issue, promotes to selected_issue)
       → retrieve_context
+      → load_full_files  (reads complete files from workspace; populates full_file_contexts)
       → planner
       → developer
       → validator ──→ (route_after_validator)
@@ -35,6 +36,7 @@ from typing import TYPE_CHECKING, Literal
 from langgraph.graph import END, START, StateGraph
 
 from forge_agents.developer import DeveloperAgent
+from forge_agents.file_loader import file_loader
 from forge_agents.issue_analyzer import IssueAnalyzerAgent
 from forge_agents.planner import PlannerAgent
 from forge_agents.pr_generator import PRGeneratorAgent
@@ -43,7 +45,7 @@ from forge_agents.retrieve_context import RetrieveContextAgent
 from forge_agents.reviewer import ReviewerAgent
 from forge_agents.test_agent import TestAgent
 from forge_agents.validator import ValidatorAgent
-from forge_workflows.state import IssueAnalysis, SelectedIssue, SentinelState, SentinelStatus, ValidationResult
+from forge_workflows.state import FullFileContext, IssueAnalysis, SelectedIssue, SentinelState, SentinelStatus, ValidationResult
 
 if TYPE_CHECKING:
     from forge_repository_analysis.embedder import CodeEmbedder
@@ -66,6 +68,7 @@ VALIDATOR = "validator"
 TEST_AGENT = "test_agent"
 REVIEWER = "reviewer"
 PR_GENERATOR = "pr_generator"
+LOAD_FULL_FILES = "load_full_files"
 
 
 # ---------------------------------------------------------------------------
@@ -223,6 +226,25 @@ def build_graph(
             "relevant_chunks": chunks,
         }
 
+    async def load_full_files(state: SentinelState) -> dict:
+        """Read complete file contents from the workspace (deterministic utility node)."""
+        logger.info("Node: %s", LOAD_FULL_FILES)
+        if not state.workspace_path:
+            logger.warning("workspace_path not set — skipping full file load")
+            return {
+                "current_agent": LOAD_FULL_FILES,
+                "status": SentinelStatus.LOADING_FILES,
+                "full_file_contexts": [],
+            }
+        unique_paths = list(dict.fromkeys(c.file_path for c in state.relevant_chunks))
+        contexts = file_loader.load_files(state.workspace_path, unique_paths)
+        logger.info("Loaded %d full file(s)", len(contexts))
+        return {
+            "current_agent": LOAD_FULL_FILES,
+            "status": SentinelStatus.LOADING_FILES,
+            "full_file_contexts": contexts,
+        }
+
     async def planner(state: SentinelState) -> dict:
         """Create an implementation plan for the selected issue."""
         logger.info("Node: %s", PLANNER)
@@ -239,6 +261,7 @@ def build_graph(
             selected_issue=state.selected_issue,
             repo_context=state.repo_context,
             retrieved_chunks=state.relevant_chunks,
+            full_file_contexts=state.full_file_contexts,
         )
         return {
             "current_agent": PLANNER,
@@ -269,6 +292,7 @@ def build_graph(
             selected_issue=state.selected_issue,
             repo_context=state.repo_context,
             retrieved_chunks=state.relevant_chunks,
+            full_file_contexts=state.full_file_contexts,
         )
         return {
             "current_agent": DEVELOPER,
@@ -371,6 +395,7 @@ def build_graph(
     graph.add_node(REPO_ANALYZER, repo_analyzer)
     graph.add_node(ISSUE_ANALYZER, issue_analyzer)
     graph.add_node(RETRIEVE_CONTEXT, retrieve_context)
+    graph.add_node(LOAD_FULL_FILES, load_full_files)
     graph.add_node(PLANNER, planner)
     graph.add_node(DEVELOPER, developer)
     graph.add_node(VALIDATOR, validator)
@@ -382,7 +407,8 @@ def build_graph(
     graph.add_edge(START, REPO_ANALYZER)
     graph.add_edge(REPO_ANALYZER, ISSUE_ANALYZER)
     graph.add_edge(ISSUE_ANALYZER, RETRIEVE_CONTEXT)
-    graph.add_edge(RETRIEVE_CONTEXT, PLANNER)
+    graph.add_edge(RETRIEVE_CONTEXT, LOAD_FULL_FILES)
+    graph.add_edge(LOAD_FULL_FILES, PLANNER)
     graph.add_edge(PLANNER, DEVELOPER)
 
     # --- Conditional: validator decides retry or proceed ---

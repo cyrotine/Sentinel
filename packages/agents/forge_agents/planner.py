@@ -22,7 +22,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from forge_workflows.state import Plan, PlanTask, RepoContext, RetrievedChunk, SelectedIssue
+from forge_workflows.state import FullFileContext, Plan, PlanTask, RepoContext, RetrievedChunk, SelectedIssue
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -51,6 +51,7 @@ class PlannerAgent:
         selected_issue: SelectedIssue,
         repo_context: RepoContext,
         retrieved_chunks: list[RetrievedChunk],
+        full_file_contexts: list[FullFileContext],
     ) -> Plan:
         """Produce an implementation plan for the selected issue.
 
@@ -58,6 +59,7 @@ class PlannerAgent:
             selected_issue: The issue chosen for implementation.
             repo_context: Repository understanding from the repo_analyzer.
             retrieved_chunks: Relevant code chunks from Qdrant.
+            full_file_contexts: Complete file contents from the workspace.
 
         Returns:
             A :class:`Plan` with tasks, affected files, and reasoning.
@@ -68,7 +70,7 @@ class PlannerAgent:
             selected_issue.title,
         )
 
-        prompt = self._build_prompt(selected_issue, repo_context, retrieved_chunks)
+        prompt = self._build_prompt(selected_issue, repo_context, retrieved_chunks, full_file_contexts)
 
         try:
             response = await self._llm.ainvoke(prompt)
@@ -94,6 +96,7 @@ class PlannerAgent:
         issue: SelectedIssue,
         repo_context: RepoContext,
         chunks: list[RetrievedChunk],
+        full_file_contexts: list[FullFileContext],
     ) -> str:
         """Construct the planning prompt for the LLM."""
 
@@ -115,10 +118,30 @@ class PlannerAgent:
             f"Estimated Complexity: {issue.estimated_complexity}"
         )
 
-        # Code chunks block
-        if chunks:
+        # Full file contents (ground truth for line-accurate planning)
+        full_file_entries = []
+        for fc in full_file_contexts:
+            lang = fc.language or ""
+            numbered = "\n".join(
+                f"{i + 1:4d} | {line}"
+                for i, line in enumerate(fc.content.splitlines())
+            )
+            full_file_entries.append(
+                f"  ### {fc.file_path} ({fc.line_count} lines, {lang})\n"
+                f"  ```{lang}\n{numbered}\n  ```"
+            )
+        full_files_block = (
+            "\n\n".join(full_file_entries)
+            if full_file_entries
+            else "  (No full file context — workspace not cloned)"
+        )
+
+        # Supplementary Qdrant chunks for files not covered by full file loading
+        covered = {fc.file_path for fc in full_file_contexts}
+        supplementary = [c for c in chunks if c.file_path not in covered]
+        if supplementary:
             chunk_entries = []
-            for i, chunk in enumerate(chunks, 1):
+            for i, chunk in enumerate(supplementary, 1):
                 entry = (
                     f"  Chunk {i}: {chunk.file_path} "
                     f"(lines {chunk.start_line}-{chunk.end_line}, "
@@ -126,9 +149,9 @@ class PlannerAgent:
                     f"  ```\n{chunk.content}\n  ```"
                 )
                 chunk_entries.append(entry)
-            code_block = "\n\n".join(chunk_entries)
+            chunks_block = "\n\n".join(chunk_entries)
         else:
-            code_block = "  (No code chunks retrieved — plan conservatively)"
+            chunks_block = "  (All relevant files covered by full file context above)"
 
         return f"""You are a senior software engineer creating an implementation plan for an autonomous AI coding agent called Sentinel.
 
@@ -145,8 +168,11 @@ You must produce a detailed, step-by-step implementation plan.
 Selected Issue:
 {issue_block}
 
-Relevant Code Context:
-{code_block}
+Full File Contents (exact line numbers — use these for precise file references):
+{full_files_block}
+
+Additional Context (Qdrant chunks for files not listed above):
+{chunks_block}
 
 Plan Requirements:
 1. Analyze the root cause of the issue.

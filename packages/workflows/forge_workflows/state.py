@@ -46,6 +46,7 @@ class SentinelStatus(str, Enum):
     ANALYZING_ISSUES = "analyzing_issues"
     PRIORITIZING = "prioritizing"
     RETRIEVING_CONTEXT = "retrieving_context"
+    LOADING_FILES = "loading_files"
     PLANNING = "planning"
     DEVELOPING = "developing"
     VALIDATING = "validating"
@@ -277,6 +278,19 @@ class RetrievedChunk(BaseModel):
     )
 
 
+class FullFileContext(BaseModel):
+    """Complete file content read from the cloned workspace.
+
+    Populated by the ``load_full_files`` graph node. Agents use this for
+    editing — chunks are for relevance ranking only.
+    """
+
+    file_path: str = Field(..., description="Relative path from repo root")
+    content: str = Field(..., description="Complete file contents")
+    language: str | None = Field(default=None, description="Language derived from file extension")
+    line_count: int = Field(default=0, description="Number of lines in the file")
+
+
 class ValidationResult(BaseModel):
     """Output of the Validator agent's code review.
 
@@ -399,6 +413,13 @@ class SentinelState(BaseModel):
     relevant_chunks: list[RetrievedChunk] = Field(
         default_factory=list,
         description="Code chunks from Qdrant relevant to the selected issue",
+    )
+
+    # --- Phase 3b: Load full files (load_full_files utility node) ---
+
+    full_file_contexts: list[FullFileContext] = Field(
+        default_factory=list,
+        description="Complete file contents read from the workspace for files relevant to the selected issue",
     )
 
     # --- Phase 4: Plan (planner) ---
