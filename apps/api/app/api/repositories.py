@@ -62,7 +62,7 @@ async def register_repository(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not fetch repository from GitHub: {exc}")
 
-    repo = await repository_service.get_or_create_repository(db, gh_repo)
+    repo = await repository_service.get_or_create_repository(db, gh_repo, body.github_pat)
     run = await ingestion_repo.create(db, repo.id)
 
     asyncio.create_task(

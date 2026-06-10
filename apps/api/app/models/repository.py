@@ -28,6 +28,7 @@ class Repository(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     default_branch: Mapped[str] = mapped_column(default="main")
     github_url: Mapped[str] = mapped_column(Text, nullable=False)
+    github_pat: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

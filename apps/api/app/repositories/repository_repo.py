@@ -42,6 +42,7 @@ async def create(
     description: str | None,
     default_branch: str,
     github_url: str,
+    github_pat: str | None = None,
 ) -> Repository:
     repo = Repository(
         github_id=github_id,
@@ -51,8 +52,25 @@ async def create(
         description=description,
         default_branch=default_branch,
         github_url=github_url,
+        github_pat=github_pat,
     )
     session.add(repo)
     await session.commit()
     await session.refresh(repo)
     return repo
+
+
+async def update_pat(
+    session: AsyncSession, repository_id: uuid.UUID, github_pat: str | None
+) -> None:
+    """Refresh the stored PAT for an existing repository.
+
+    No-op when ``github_pat`` is falsy so existing callers that omit a PAT
+    never clobber a previously stored token.
+    """
+    if not github_pat:
+        return
+    repo = await get_by_id(session, repository_id)
+    if repo is not None:
+        repo.github_pat = github_pat
+        await session.commit()

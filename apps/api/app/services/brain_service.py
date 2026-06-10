@@ -10,6 +10,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.config import settings
 from app.database import AsyncSessionLocal
 from app.repositories import agent_run_repo, file_repo, issue_repo, repository_repo
+from app.services.workspace_manager import workspace_manager
 from forge_repository_analysis.embedder import CodeEmbedder
 from forge_vector_store.store import VectorStore
 from forge_workflows.graph import build_graph
@@ -59,6 +60,7 @@ class BrainService:
     """
 
     async def start(self, run_id: uuid.UUID) -> None:
+        workspace_path: str | None = None
         async with AsyncSessionLocal() as session:
             try:
                 run = await agent_run_repo.get_by_id(session, run_id)
@@ -76,6 +78,15 @@ class BrainService:
                     started_at=datetime.now(timezone.utc),
                 )
 
+                # Clone the target repo to a per-run workspace so downstream
+                # agents operate on real files. PAT=None works for public repos.
+                repo = await repository_repo.get_by_id(session, repository_id)
+                if repo is None:
+                    raise ValueError(f"Repository {repository_id} not found")
+                workspace_path = await workspace_manager.clone(
+                    str(run_id), repo.github_url, repo.github_pat
+                )
+
                 inputs = await self._load_inputs(session, repository_id)
 
                 graph = build_graph(
@@ -89,6 +100,7 @@ class BrainService:
                     target_issue_id=str(target_issue_id) if target_issue_id else None,
                     agent_run_id=str(run_id),
                     inputs=inputs,
+                    workspace_path=workspace_path,
                 )
 
                 accumulator: dict[str, Any] = {}
@@ -131,6 +143,10 @@ class BrainService:
                         error=str(exc),
                         completed_at=datetime.now(timezone.utc),
                     )
+            finally:
+                # Always remove the workspace, whether the run succeeded or failed.
+                if workspace_path:
+                    workspace_manager.cleanup(str(run_id))
 
     # ------------------------------------------------------------------
     # Private helpers

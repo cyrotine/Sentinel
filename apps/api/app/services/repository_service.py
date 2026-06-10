@@ -13,9 +13,12 @@ from forge_github.client import Repository as GitHubRepository
 async def get_or_create_repository(
     session: AsyncSession,
     gh_repo: GitHubRepository,
+    github_pat: str | None = None,
 ) -> Repository:
     existing = await repository_repo.get_by_github_id(session, int(gh_repo.github_id))
     if existing:
+        # Refresh the PAT if the caller supplied one; no-op otherwise.
+        await repository_repo.update_pat(session, existing.id, github_pat)
         return existing
     return await repository_repo.create(
         session,
@@ -26,6 +29,7 @@ async def get_or_create_repository(
         description=gh_repo.description,
         default_branch=gh_repo.default_branch,
         github_url=gh_repo.html_url,
+        github_pat=github_pat,
     )
 
 
