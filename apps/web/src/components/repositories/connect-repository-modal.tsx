@@ -11,6 +11,7 @@ interface ConnectRepositoryModalProps {
 export function ConnectRepositoryModal({ onSuccess }: ConnectRepositoryModalProps) {
   const [open, setOpen] = useState(false)
   const [url, setUrl] = useState("")
+  const [pat, setPat] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -19,8 +20,9 @@ export function ConnectRepositoryModal({ onSuccess }: ConnectRepositoryModalProp
     setError(null)
     setLoading(true)
     try {
-      await registerRepository(url.trim())
+      await registerRepository(url.trim(), pat.trim() || undefined)
       setUrl("")
+      setPat("")
       setOpen(false)
       onSuccess()
     } catch (err) {
@@ -62,6 +64,17 @@ export function ConnectRepositoryModal({ onSuccess }: ConnectRepositoryModalProp
                   "w-full rounded-md border px-3 py-2 text-sm outline-none",
                   "border-gray-300 focus:border-gray-500 focus:ring-1 focus:ring-gray-500",
                   error && "border-red-400"
+                )}
+              />
+              <input
+                type="password"
+                value={pat}
+                onChange={(e) => setPat(e.target.value)}
+                placeholder="ghp_xxxx (optional — required for write access)"
+                autoComplete="off"
+                className={cn(
+                  "w-full rounded-md border px-3 py-2 text-sm outline-none",
+                  "border-gray-300 focus:border-gray-500 focus:ring-1 focus:ring-gray-500"
                 )}
               />
               {error && <p className="text-xs text-red-600">{error}</p>}

@@ -371,6 +371,13 @@ class SentinelState(BaseModel):
         description="Repository data pre-loaded from Postgres by BrainService",
     )
 
+    # --- Infrastructure (set by BrainService before the graph runs) ---
+
+    workspace_path: str | None = Field(
+        default=None,
+        description="Absolute path to the cloned repository on the API host filesystem",
+    )
+
     # --- Phase 1: Understand (repo_analyzer, issue_analyzer) ---
 
     repo_context: RepoContext | None = Field(

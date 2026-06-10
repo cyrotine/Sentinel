@@ -77,10 +77,13 @@ export async function fetchRepositories(): Promise<RepositoryOut[]> {
   return apiFetch<RepositoryOut[]>("/repositories")
 }
 
-export async function registerRepository(githubUrl: string): Promise<RepositoryCreatedOut> {
+export async function registerRepository(
+  githubUrl: string,
+  pat?: string,
+): Promise<RepositoryCreatedOut> {
   return apiFetch<RepositoryCreatedOut>("/repositories", {
     method: "POST",
-    body: JSON.stringify({ github_url: githubUrl }),
+    body: JSON.stringify({ github_url: githubUrl, github_pat: pat || undefined }),
   })
 }
 
