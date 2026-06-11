@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import AsyncSessionLocal
 from app.repositories import agent_run_repo, file_repo, issue_repo, repository_repo
 from app.services.git_service import git_service
+from app.services.github_pr_service import github_pr_service
 from app.services.workspace_manager import workspace_manager
 from forge_repository_analysis.embedder import CodeEmbedder
 from forge_vector_store.store import VectorStore
@@ -147,6 +148,17 @@ class BrainService:
                 )
                 result["git_result"] = _dump(git_result)
 
+                # --- Phase 6: Open a real GitHub PR (post-graph, PAT stays at app layer) ---
+                pr_url, pr_number = await self._run_github_pr(
+                    run_id=run_id,
+                    repo_full_name=repo.full_name,
+                    repo_github_pat=repo.github_pat,
+                    git_result=git_result,
+                    accumulator=accumulator,
+                )
+                result["pull_request_url"] = pr_url
+                result["pull_request_number"] = pr_number
+
                 await agent_run_repo.update_status(
                     session,
                     run_id,
@@ -253,6 +265,57 @@ class BrainService:
                 git_result.error,
             )
         return git_result
+
+    async def _run_github_pr(
+        self,
+        *,
+        run_id: uuid.UUID,
+        repo_full_name: str,
+        repo_github_pat: str | None,
+        git_result: GitResult | None,
+        accumulator: dict[str, Any],
+    ) -> tuple[str | None, int | None]:
+        """Open a real GitHub PR from the pushed branch (post-graph).
+
+        Returns ``(pull_request_url, pull_request_number)`` on success, or
+        ``(None, None)`` when skipped or on failure. Never raises — a PR
+        creation failure (missing scope, duplicate PR, timeout) must not fail
+        the overall run; the pushed branch is the primary deliverable.
+        """
+        if git_result is None or not git_result.pushed:
+            logger.info("Skipping PR step: no pushed branch available")
+            return None, None
+
+        if not repo_github_pat:
+            logger.info("Skipping PR step: no PAT configured for repository")
+            return None, None
+
+        pull_request_draft: PullRequestDraft | None = accumulator.get("pull_request_draft")
+        if pull_request_draft is None:
+            logger.warning("Skipping PR step: no pull_request_draft in accumulator")
+            return None, None
+
+        base = pull_request_draft.base_branch or "main"
+        try:
+            pr_url, pr_number = await github_pr_service.create_pull_request(
+                full_name=repo_full_name,
+                pat=repo_github_pat,
+                title=pull_request_draft.title,
+                body=pull_request_draft.body,
+                head=git_result.branch,
+                base=base,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Run %s: PR creation failed for branch %s — %s",
+                run_id,
+                git_result.branch,
+                exc,
+            )
+            return None, None
+
+        logger.info("Run %s: opened PR #%d (%s)", run_id, pr_number, pr_url)
+        return pr_url, pr_number
 
     @staticmethod
     def _build_llm() -> ChatGoogleGenerativeAI:

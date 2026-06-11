@@ -132,11 +132,13 @@ class GitHubClient:
         body: str,
         head: str,
         base: str,
-    ) -> str:
+    ) -> tuple[str, int]:
+        """Open a pull request and return ``(html_url, number)``."""
         async with self._client() as client:
             resp = await client.post(
                 f"/repos/{owner}/{name}/pulls",
                 json={"title": title, "body": body, "head": head, "base": base},
             )
             resp.raise_for_status()
-        return resp.json()["html_url"]
+        data = resp.json()
+        return data["html_url"], data["number"]

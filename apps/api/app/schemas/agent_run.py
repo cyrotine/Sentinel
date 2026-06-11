@@ -24,6 +24,8 @@ class AgentRunResult(BaseModel):
     code_changes: list[dict] = []
     review: dict | None = None
     pull_request_draft: dict | None = None
+    pull_request_url: str | None = None
+    pull_request_number: int | None = None
 
 
 class AgentRunOut(BaseModel):
