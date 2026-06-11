@@ -143,6 +143,8 @@ export interface AgentRunResult {
   pull_request_draft: Record<string, unknown> | null
   pull_request_url: string | null
   pull_request_number: number | null
+  iteration: number | null
+  repair_context: Record<string, unknown> | null
 }
 
 export interface AgentRunOut {

@@ -24,6 +24,7 @@ from forge_workflows.state import (
     CodeChange,
     FullFileContext,
     Plan,
+    RepairContext,
     RepoContext,
     RetrievedChunk,
     SelectedIssue,
@@ -58,6 +59,7 @@ class DeveloperAgent:
         repo_context: RepoContext,
         retrieved_chunks: list[RetrievedChunk],
         full_file_contexts: list[FullFileContext],
+        repair_context: RepairContext | None = None,
     ) -> list[CodeChange]:
         """Generate code changes based on the implementation plan.
 
@@ -66,6 +68,10 @@ class DeveloperAgent:
             selected_issue: The issue being resolved.
             repo_context: Repository understanding from the repo_analyzer.
             retrieved_chunks: Relevant code chunks from Qdrant.
+            full_file_contexts: Complete file contents read from the workspace.
+            repair_context: Failure feedback from the prior attempt on a retry
+                iteration. ``None`` on the first attempt — when ``None`` the prompt
+                is identical to a fresh run.
 
         Returns:
             A list of :class:`CodeChange` objects with unified diffs.
@@ -78,7 +84,9 @@ class DeveloperAgent:
             len(plan.affected_files),
         )
 
-        prompt = self._build_prompt(plan, selected_issue, repo_context, retrieved_chunks, full_file_contexts)
+        prompt = self._build_prompt(
+            plan, selected_issue, repo_context, retrieved_chunks, full_file_contexts, repair_context
+        )
 
         try:
             response = await self._llm.ainvoke(prompt)
@@ -102,8 +110,15 @@ class DeveloperAgent:
         repo_context: RepoContext,
         chunks: list[RetrievedChunk],
         full_file_contexts: list[FullFileContext],
+        repair_context: RepairContext | None = None,
     ) -> str:
         """Construct the code generation prompt for the LLM."""
+
+        # On a retry, the failure feedback is the first thing the model sees so it
+        # dominates attention. When None (first attempt) the prompt is unchanged.
+        repair_block = (
+            self._build_repair_block(repair_context) if repair_context is not None else ""
+        )
 
         # Repository context
         repo_block = (
@@ -163,7 +178,7 @@ class DeveloperAgent:
         return f"""You are a senior software engineer implementing code changes for an autonomous AI coding agent called Sentinel.
 
 You are executing a pre-approved implementation plan. Your job is to produce the EXACT code modifications needed.
-
+{repair_block}
 {repo_block}
 
 {issue_block}
@@ -209,6 +224,64 @@ Example format:
 }}
 
 Respond with valid JSON only. No markdown, no explanation, just the JSON object."""
+
+    @staticmethod
+    def _build_repair_block(repair: RepairContext) -> str:
+        """Build the 'PREVIOUS ATTEMPT FAILED' section fed back on a retry.
+
+        Echoes each failed diff alongside the current on-disk file content so the
+        model re-diffs against ground truth, plus validation and review feedback.
+        The workspace is rolled back to the pristine clone before each apply, so
+        regenerated diffs must target the *original* file content shown here.
+        """
+        lines: list[str] = [
+            "",
+            "PREVIOUS ATTEMPT FAILED — fix the specific problems below, then regenerate ALL changes.",
+            f"Trigger(s): {', '.join(repair.triggers) or 'unknown'}",
+        ]
+
+        if repair.failed_patches:
+            lines.append("")
+            lines.append("The following patch(es) did NOT apply cleanly:")
+            for pr in repair.failed_patches:
+                lines.append("")
+                lines.append(f"  ### {pr.file_path}")
+                lines.append(f"  Reason: {pr.error or 'git apply failed'}")
+                lines.append("  Your previous (rejected) diff:")
+                lines.append("  ```")
+                lines.append(pr.failed_patch or "(empty)")
+                lines.append("  ```")
+                if pr.full_file_content is not None:
+                    lines.append(
+                        "  Current on-disk content (diff against THIS — line numbers are exact):"
+                    )
+                    lines.append("  ```")
+                    lines.append(pr.full_file_content)
+                    lines.append("  ```")
+
+        if repair.validation_issues or repair.validation_suggestions:
+            lines.append("")
+            if repair.validation_issues:
+                lines.append("Validation issues to resolve:")
+                lines.extend(f"  - {item}" for item in repair.validation_issues)
+            if repair.validation_suggestions:
+                lines.append("Suggestions:")
+                lines.extend(f"  - {item}" for item in repair.validation_suggestions)
+
+        review_items = (
+            repair.review_security_issues + repair.review_comments + repair.review_suggestions
+        )
+        if review_items:
+            lines.append("")
+            lines.append("Review feedback to address:")
+            lines.extend(f"  - {item}" for item in review_items)
+
+        lines.append("")
+        lines.append(
+            "Regenerate corrected unified diffs for every affected file. "
+            "Diff against the original file content shown above. Do not repeat the rejected diff."
+        )
+        return "\n".join(lines)
 
     @staticmethod
     def _parse_llm_response(content: str) -> dict[str, Any]:

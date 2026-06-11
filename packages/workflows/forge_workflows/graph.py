@@ -16,8 +16,10 @@ Graph topology::
       → retrieve_context
       → load_full_files  (reads complete files from workspace; populates full_file_contexts)
       → planner
-      → developer
-      → apply_patches  (applies CodeChange diffs to the workspace via git apply)
+      → developer  (on retry, receives a RepairContext describing the prior failure)
+      → apply_patches ──→ (route_after_apply_patches)
+      │                  ├─ patch failed & retries left → developer
+      │                  └─ applied or max retries       → validator
       → validator ──→ (route_after_validator)
       │                  ├─ valid or max retries → test_agent
       │                  └─ invalid              → developer
@@ -48,7 +50,7 @@ from forge_agents.retrieve_context import RetrieveContextAgent
 from forge_agents.reviewer import ReviewerAgent
 from forge_agents.test_agent import TestAgent
 from forge_agents.validator import ValidatorAgent
-from forge_workflows.state import FullFileContext, IssueAnalysis, SelectedIssue, SentinelState, SentinelStatus, ValidationResult
+from forge_workflows.state import FullFileContext, IssueAnalysis, RepairContext, SelectedIssue, SentinelState, SentinelStatus, ValidationResult
 
 if TYPE_CHECKING:
     from forge_repository_analysis.embedder import CodeEmbedder
@@ -80,6 +82,23 @@ LOAD_FULL_FILES = "load_full_files"
 # ---------------------------------------------------------------------------
 
 
+def route_after_apply_patches(state: SentinelState) -> Literal["developer", "validator"]:
+    """Decide whether to repair failed patches or proceed to validation.
+
+    Routes back to ``developer`` when at least one patch failed to apply and the
+    iteration budget is not exhausted; otherwise proceeds to ``validator``. The
+    developer node rebuilds the repair feedback from ``patch_results`` on re-entry.
+    """
+    any_failed = any(not r.applied for r in state.patch_results)
+    if any_failed and state.iteration < state.max_iterations:
+        logger.info(
+            "Patch application failed (iteration %d) — routing back to developer",
+            state.iteration,
+        )
+        return DEVELOPER
+    return VALIDATOR
+
+
 def route_after_validator(state: SentinelState) -> Literal["developer", "test_agent"]:
     """Decide whether to retry development or proceed to testing.
 
@@ -109,6 +128,40 @@ def route_after_reviewer(state: SentinelState) -> Literal["developer", "pr_gener
 # ---------------------------------------------------------------------------
 # Graph construction
 # ---------------------------------------------------------------------------
+
+
+def _build_repair_context(state: SentinelState) -> RepairContext | None:
+    """Assemble the developer's repair feedback from the prior attempt's failures.
+
+    Pure: reads only existing state fields (``patch_results``, ``validation_result``,
+    ``review``). Returns ``None`` when there is no failure signal — i.e. the first
+    attempt, or a clean re-entry — so the developer prompt stays unchanged in that case.
+    """
+    failed = [r for r in state.patch_results if not r.applied]
+    vr = state.validation_result
+    rev = state.review
+
+    triggers: list[str] = []
+    if failed:
+        triggers.append("patch_failed")
+    if vr is not None and not vr.passed:
+        triggers.append("validation_failed")
+    if rev is not None and not rev.approved:
+        triggers.append("review_rejected")
+
+    if not triggers:
+        return None
+
+    return RepairContext(
+        iteration=state.iteration,
+        triggers=triggers,
+        failed_patches=failed,
+        validation_issues=vr.issues if (vr is not None and not vr.passed) else [],
+        validation_suggestions=vr.suggestions if (vr is not None and not vr.passed) else [],
+        review_comments=rev.comments if (rev is not None and not rev.approved) else [],
+        review_security_issues=rev.security_issues if (rev is not None and not rev.approved) else [],
+        review_suggestions=rev.suggestions if (rev is not None and not rev.approved) else [],
+    )
 
 
 def _estimate_complexity(analysis: IssueAnalysis) -> str:
@@ -290,6 +343,16 @@ def build_graph(
                 "iteration": state.iteration + 1,
             }
 
+        # On a retry iteration, feed the prior attempt's failures back to the agent so
+        # it corrects its specific mistakes instead of regenerating the same output.
+        repair_context = _build_repair_context(state) if state.iteration > 0 else None
+        if repair_context is not None:
+            logger.info(
+                "Repair iteration %d — trigger(s): %s",
+                state.iteration,
+                ", ".join(repair_context.triggers),
+            )
+
         agent = DeveloperAgent(llm=llm)
         code_changes = await agent.develop(
             plan=state.plan,
@@ -297,11 +360,13 @@ def build_graph(
             repo_context=state.repo_context,
             retrieved_chunks=state.relevant_chunks,
             full_file_contexts=state.full_file_contexts,
+            repair_context=repair_context,
         )
         return {
             "current_agent": DEVELOPER,
             "status": SentinelStatus.DEVELOPING,
             "code_changes": code_changes,
+            "repair_context": repair_context,
             "iteration": state.iteration + 1,
         }
 
@@ -310,8 +375,9 @@ def build_graph(
 
         Rolls the workspace back to the pristine clone first so that retry
         iterations re-apply the full latest diff set against a clean tree, then
-        applies each ``CodeChange`` via the PatchExecutor. Always proceeds to the
-        validator regardless of patch outcome — acting on failures is Phase 7.
+        applies each ``CodeChange`` via the PatchExecutor. The follow-on
+        ``route_after_apply_patches`` edge decides whether a failed application
+        routes back to the developer for repair or proceeds to the validator.
         """
         logger.info("Node: %s", APPLY_PATCHES)
         if not state.workspace_path or not state.code_changes:
@@ -447,7 +513,13 @@ def build_graph(
 
     # --- Patch application: apply the developer's diffs to the workspace ---
     graph.add_edge(DEVELOPER, APPLY_PATCHES)
-    graph.add_edge(APPLY_PATCHES, VALIDATOR)
+
+    # --- Conditional: failed patch application routes back to the developer ---
+    graph.add_conditional_edges(
+        APPLY_PATCHES,
+        route_after_apply_patches,
+        {DEVELOPER: DEVELOPER, VALIDATOR: VALIDATOR},
+    )
 
     # --- Conditional: validator decides retry or proceed ---
     graph.add_conditional_edges(

@@ -19,17 +19,12 @@ fuzzy retry before declaring failure.
 from __future__ import annotations
 
 import logging
-import re
 import subprocess
 from pathlib import Path
 
 from forge_workflows.state import CodeChange, PatchResult
 
 logger = logging.getLogger(__name__)
-
-# Matches a leading/trailing markdown code fence the LLM may have wrapped the
-# diff in despite instructions to emit raw diffs.
-_FENCE_RE = re.compile(r"^\s*```[a-zA-Z0-9_-]*\s*\n|\n?```\s*$")
 
 
 class PatchExecutor:
@@ -129,11 +124,37 @@ class PatchExecutor:
 
     @staticmethod
     def _normalize(patch: str) -> str:
-        """Strip a stray surrounding markdown fence and ensure trailing newline."""
-        text = _FENCE_RE.sub("", patch.strip())
-        if not text.endswith("\n"):
-            text += "\n"
-        return text
+        """Prepare an LLM-emitted diff for ``git apply`` without corrupting it.
+
+        Removes a stray wrapping markdown code fence (the LLM sometimes adds one
+        despite instructions) and collapses trailing newlines to exactly one.
+
+        Critically, it strips only *newlines* at the end — never trailing
+        spaces. A unified diff's final line is frequently a blank **context**
+        line rendered as a single space (`" "`), and that line is counted by the
+        hunk header (e.g. ``@@ -44,7 +44,7 @@``). Removing it (as ``str.strip``
+        would) leaves the body one line short of the header count and git rejects
+        the whole patch with "corrupt patch at line N".
+        """
+        lines = patch.split("\n")
+
+        # Drop a leading ```/```lang fence line.
+        if lines and lines[0].lstrip().startswith("```"):
+            lines.pop(0)
+
+        # Drop a trailing ``` fence, allowing for blank lines the LLM may have
+        # emitted after it. Only remove the fence and what follows — never touch
+        # the diff body above it.
+        last = len(lines) - 1
+        while last >= 0 and lines[last].strip() == "":
+            last -= 1
+        if last >= 0 and lines[last].lstrip().startswith("```"):
+            lines = lines[:last]
+
+        text = "\n".join(lines)
+        # Exactly one trailing newline; rstrip("\n") preserves a final blank
+        # context line (a single space) that strip() would have eaten.
+        return text.rstrip("\n") + "\n"
 
     @staticmethod
     def _read_if_exists(path: Path) -> str | None:
