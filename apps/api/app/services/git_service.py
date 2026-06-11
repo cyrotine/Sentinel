@@ -157,15 +157,17 @@ class GitService:
 
     @staticmethod
     def _authenticated_url(github_url: str, pat: str | None) -> str:
-        """Inject the PAT into an HTTPS remote URL.
+        """Inject the PAT into an HTTPS clone URL.
 
         Mirrors ``WorkspaceManager._authenticated_url`` — uses the
         ``x-access-token:{pat}@host`` form so private repos can be pushed.
         """
+        from app.config import settings
         parsed = urlparse(github_url.rstrip("/"))
         path = parsed.path.rstrip("/")
         if not path.endswith(".git"):
             path += ".git"
+        pat = pat or settings.github_token
         if pat:
             return f"https://x-access-token:{pat}@{parsed.netloc}{path}"
         return f"https://{parsed.netloc}{path}"

@@ -40,6 +40,7 @@ class AgentRunOut(BaseModel):
     current_node: str | None
     error: str | None
     result: AgentRunResult | None
+    execution_snapshot: dict | None = None
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None

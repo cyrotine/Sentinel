@@ -1,4 +1,5 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api"
+const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE = configuredUrl ? configuredUrl.replace('8000', '8001') : "http://127.0.0.1:8001/api";
 
 export interface IngestionRunOut {
   id: string

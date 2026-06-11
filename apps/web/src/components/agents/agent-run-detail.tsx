@@ -4,8 +4,9 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { fetchAgentRun } from "@/lib/api"
 import type { AgentRunOut } from "@/lib/api"
-import { StatusBadge } from "@/components/ui/status-badge"
 import { DiffViewer } from "@/components/agents/diff-viewer"
+import { CheckCircle2, Circle, Clock, GitPullRequest, Loader2, PlayCircle, Terminal, XCircle, FileCode, CheckSquare, GitBranch } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 const TERMINAL = new Set(["completed", "failed"])
 const POLL_INTERVAL_MS = 2000
@@ -50,6 +51,59 @@ const TRIGGER_LABELS: Record<string, string> = {
   review_rejected: "review rejected",
 }
 
+function PipelineStep({ label, isActive, isCompleted, isFailed }: { label: string; isActive: boolean; isCompleted: boolean; isFailed?: boolean }) {
+  return (
+    <div className="flex flex-col items-center gap-2 w-24">
+      <div className={cn(
+        "flex items-center justify-center w-8 h-8 rounded-full border-2 transition-colors",
+        isCompleted ? "border-blue-500 bg-blue-500/10 text-blue-500" :
+        isFailed ? "border-red-500 bg-red-500/10 text-red-500" :
+        isActive ? "border-blue-400 bg-blue-400/20 text-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.5)]" :
+        "border-neutral-800 bg-neutral-900 text-neutral-600"
+      )}>
+        {isCompleted ? <CheckCircle2 className="w-5 h-5" /> : 
+         isFailed ? <XCircle className="w-5 h-5" /> :
+         isActive ? <Loader2 className="w-5 h-5 animate-spin" /> : 
+         <Circle className="w-4 h-4" />}
+      </div>
+      <span className={cn(
+        "text-[10px] font-medium uppercase tracking-wider text-center",
+        isCompleted ? "text-blue-400" :
+        isFailed ? "text-red-400" :
+        isActive ? "text-blue-300" :
+        "text-neutral-500"
+      )}>
+        {label}
+      </span>
+    </div>
+  )
+}
+
+function PipelineConnector({ active }: { active: boolean }) {
+  return (
+    <div className="flex-1 h-[2px] mx-2 mt-4 bg-neutral-800 relative overflow-hidden rounded-full">
+      {active && (
+        <div className="absolute inset-0 bg-blue-500/50 animate-pulse" />
+      )}
+    </div>
+  )
+}
+
+function ActivityLogItem({ time, message, type = "info" }: { time?: string; message: string; type?: "info" | "success" | "error" }) {
+  return (
+    <div className="flex gap-4 font-mono text-xs">
+      <span className="text-neutral-600 shrink-0">{time ? new Date(time).toLocaleTimeString() : "--:--:--"}</span>
+      <span className={cn(
+        type === "success" ? "text-green-400" :
+        type === "error" ? "text-red-400" :
+        "text-neutral-300"
+      )}>
+        {message}
+      </span>
+    </div>
+  )
+}
+
 export function AgentRunDetail({ runId }: { runId: string }) {
   const [run, setRun] = useState<AgentRunOut | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -81,9 +135,9 @@ export function AgentRunDetail({ runId }: { runId: string }) {
 
   if (error) {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-        <p className="text-sm font-medium text-red-700">{error}</p>
-        <Link href="/agents" className="mt-2 inline-block text-xs text-blue-600 hover:underline">
+      <div className="rounded-xl border border-red-900/50 bg-red-500/10 p-6 max-w-2xl mx-auto mt-8">
+        <p className="text-sm font-medium text-red-400">{error}</p>
+        <Link href="/agents" className="mt-4 inline-block text-sm text-blue-400 hover:text-blue-300">
           ← Back to agents
         </Link>
       </div>
@@ -91,7 +145,11 @@ export function AgentRunDetail({ runId }: { runId: string }) {
   }
 
   if (!run) {
-    return <p className="text-sm text-gray-500">Loading run…</p>
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    )
   }
 
   const result = run.result
@@ -109,171 +167,194 @@ export function AgentRunDetail({ runId }: { runId: string }) {
     .map((t) => TRIGGER_LABELS[t] ?? t)
     .join(", ")
 
+  // Derive Pipeline State
+  const isFailed = run.status === "failed"
+  const isIssueDone = !!issue
+  const isPlanDone = !!plan
+  const isDevDone = changes.length > 0
+  const isReviewDone = !!review
+  const isPrDone = !!prUrl || run.status === "completed"
+
+  const activeStage = 
+    isFailed ? "failed" :
+    isPrDone ? "completed" :
+    isReviewDone ? "reviewer" :
+    isDevDone ? "validator" :
+    isPlanDone ? "developer" :
+    isIssueDone ? "planner" : 
+    "issue_selection"
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Link href="/agents" className="text-sm text-blue-600 hover:underline">
-            Agents
-          </Link>
-          <span className="text-gray-300">/</span>
-          <h2 className="font-mono text-sm text-gray-900">{run.id.slice(0, 8)}</h2>
-          <StatusBadge status={run.status} />
+    <div className="max-w-6xl mx-auto py-8 space-y-8">
+      
+      {/* 4A: Hero Header */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3 text-sm text-neutral-400 font-mono">
+          <Link href="/agents" className="hover:text-white transition-colors">Agents</Link>
+          <span>/</span>
+          <span className="text-neutral-500">{run.id.slice(0, 8)}</span>
           {repaired && (
-            <span
-              className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700"
-              title={repairTriggers ? `Last trigger: ${repairTriggers}` : undefined}
-            >
-              ↻ Repaired · {iteration} attempts
-            </span>
+            <>
+              <span>/</span>
+              <span className="text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full text-xs">
+                ↻ Repaired ({iteration} attempts)
+              </span>
+            </>
           )}
         </div>
-        {!TERMINAL.has(run.status) && (
-          <span className="text-xs text-gray-500">
-            Running{run.current_node ? ` · ${run.current_node}` : ""}…
-          </span>
-        )}
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-white tracking-tight">
+              {issue?.title || "Initializing Autonomous Run..."}
+            </h1>
+            <div className="flex items-center gap-4 mt-3 text-sm">
+              <span className={cn(
+                "px-2.5 py-1 rounded-md font-medium uppercase tracking-wider text-xs flex items-center gap-2",
+                run.status === "completed" ? "bg-green-500/10 text-green-400 border border-green-500/20" :
+                run.status === "failed" ? "bg-red-500/10 text-red-400 border border-red-500/20" :
+                run.status === "running" ? "bg-blue-500/10 text-blue-400 border border-blue-500/20" :
+                "bg-neutral-800 text-neutral-400 border border-neutral-700"
+              )}>
+                {run.status === "running" && <Loader2 className="w-3 h-3 animate-spin" />}
+                {run.status}
+              </span>
+              <span className="text-neutral-500 flex items-center gap-1.5">
+                <Clock className="w-4 h-4" />
+                {run.started_at ? new Date(run.started_at).toLocaleString() : "Waiting..."}
+              </span>
+            </div>
+          </div>
+          {prUrl && (
+            <a 
+              href={prUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors"
+            >
+              <GitPullRequest className="w-4 h-4" />
+              View Pull Request
+            </a>
+          )}
+        </div>
       </div>
 
-      {run.status === "failed" && run.error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <p className="text-sm font-medium text-red-700">Run failed</p>
-          <p className="mt-1 break-words text-xs text-red-600">{run.error}</p>
+      {/* 4A: Agent Execution Pipeline */}
+      <div className="bg-[#0f0f0f] border border-neutral-800 rounded-2xl p-8">
+        <h2 className="text-sm font-medium text-neutral-400 uppercase tracking-wider mb-8">Execution Pipeline</h2>
+        <div className="flex items-start justify-between max-w-4xl mx-auto">
+          <PipelineStep label="Issue Selected" isActive={activeStage === "issue_selection"} isCompleted={isIssueDone} />
+          <PipelineConnector active={activeStage === "issue_selection"} />
+          <PipelineStep label="Planning" isActive={activeStage === "planner"} isCompleted={isPlanDone} />
+          <PipelineConnector active={activeStage === "planner"} />
+          <PipelineStep label="Code Gen" isActive={activeStage === "developer"} isCompleted={isDevDone} />
+          <PipelineConnector active={activeStage === "developer" || activeStage === "validator"} />
+          <PipelineStep label="Review" isActive={activeStage === "reviewer"} isCompleted={isReviewDone} isFailed={isFailed && activeStage === "reviewer"} />
+          <PipelineConnector active={activeStage === "reviewer"} />
+          <PipelineStep label="Pull Request" isActive={run.status === "running" && isReviewDone} isCompleted={isPrDone} isFailed={isFailed && !isPrDone} />
+        </div>
+      </div>
+
+      {/* 4A: Live Agent Activity Feed */}
+      <div className="bg-[#0A0A0A] border border-neutral-800 rounded-2xl overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-neutral-800 bg-neutral-900/50">
+          <Terminal className="w-4 h-4 text-neutral-400" />
+          <span className="text-xs font-medium text-neutral-400 uppercase tracking-wider">Live Activity Feed</span>
+        </div>
+        <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
+          <ActivityLogItem time={run.started_at ?? undefined} message="Initializing autonomous agent workspace..." />
+          {isIssueDone && <ActivityLogItem time={run.started_at ?? undefined} message={`Selected issue: ${issue?.title}`} type="success" />}
+          {isPlanDone && <ActivityLogItem message="Generated execution plan and identified target files." />}
+          {isDevDone && <ActivityLogItem message={`Applied code changes to ${changes.length} files.`} type="success" />}
+          {repaired && <ActivityLogItem message={`Repair iteration triggered: ${repairTriggers}`} type="error" />}
+          {isReviewDone && review?.approved && <ActivityLogItem message="Review passed successfully." type="success" />}
+          {isReviewDone && !review?.approved && <ActivityLogItem message="Review requested changes. Initiating repair..." type="error" />}
+          {isPrDone && <ActivityLogItem time={run.completed_at ?? undefined} message={`Pull Request created successfully!`} type="success" />}
+          {isFailed && <ActivityLogItem time={run.completed_at ?? undefined} message={`Run failed: ${run.error}`} type="error" />}
+          {run.status === "running" && <ActivityLogItem message={`Agent is currently running node: ${run.current_node}...`} />}
+        </div>
+      </div>
+
+      {/* 4B: Reasoning & Diffs */}
+      {(plan || changes.length > 0 || review) && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          
+          <div className="lg:col-span-1 space-y-6">
+            {plan && (
+              <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4 text-neutral-300">
+                  <CheckSquare className="w-5 h-5 text-blue-400" />
+                  <h3 className="font-medium">Execution Plan</h3>
+                </div>
+                <div className="prose prose-invert prose-sm">
+                  <p className="text-neutral-400">{plan.approach_reasoning}</p>
+                </div>
+                {plan.tasks && plan.tasks.length > 0 && (
+                  <ul className="mt-4 space-y-2">
+                    {plan.tasks.map((t, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-neutral-300">
+                        <div className="mt-1 w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                        <span>{t.description}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {review && (
+              <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <CheckCircle2 className={cn("w-5 h-5", review.approved ? "text-green-500" : "text-amber-500")} />
+                  <h3 className="font-medium text-neutral-300">Code Review</h3>
+                </div>
+                {review.comments && review.comments.length > 0 && (
+                  <ul className="space-y-3">
+                    {review.comments.map((c, i) => (
+                      <li key={i} className="text-sm text-neutral-400 bg-neutral-950 p-3 rounded-lg border border-neutral-800">
+                        {c}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="lg:col-span-2 space-y-6">
+            {changes.length > 0 && (
+              <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl overflow-hidden">
+                <div className="px-6 py-4 border-b border-neutral-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-neutral-300">
+                    <FileCode className="w-5 h-5 text-blue-400" />
+                    <h3 className="font-medium">Transparent Code Changes</h3>
+                  </div>
+                  <span className="text-xs font-medium bg-neutral-800 text-neutral-300 px-2 py-1 rounded">
+                    {changes.length} files modified
+                  </span>
+                </div>
+                <div className="p-6 space-y-6">
+                  {changes.map((c, i) => (
+                    <div key={i} className="rounded-lg overflow-hidden border border-neutral-800">
+                      <div className="bg-neutral-950 px-4 py-2 border-b border-neutral-800 text-sm font-mono text-neutral-400 flex items-center gap-2">
+                        <GitBranch className="w-4 h-4" />
+                        {c.file_path}
+                      </div>
+                      <DiffViewer
+                        filePath={c.file_path ?? ""}
+                        patch={c.patch ?? ""}
+                        description={c.description ?? ""}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
         </div>
       )}
 
-      {issue && (
-        <Section title="Selected issue">
-          <div className="flex items-center gap-2">
-            <p className="text-sm font-medium text-gray-900">
-              {issue.number != null ? `#${issue.number} · ` : ""}
-              {issue.title}
-            </p>
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                run.target_issue_id
-                  ? "bg-blue-100 text-blue-700"
-                  : "bg-gray-100 text-gray-600"
-              }`}
-            >
-              {run.target_issue_id ? "User-selected" : "Auto-selected"}
-            </span>
-          </div>
-          {issue.reasoning && <p className="mt-1 text-sm text-gray-500">{issue.reasoning}</p>}
-          {issue.estimated_complexity && (
-            <p className="mt-1 text-xs text-gray-400">Complexity: {issue.estimated_complexity}</p>
-          )}
-        </Section>
-      )}
-
-      {plan && (
-        <Section title="Plan">
-          {plan.approach_reasoning && (
-            <p className="whitespace-pre-wrap text-sm text-gray-600">{plan.approach_reasoning}</p>
-          )}
-          {plan.tasks && plan.tasks.length > 0 && (
-            <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-gray-700">
-              {plan.tasks.map((t, i) => (
-                <li key={t.id ?? i}>{t.description}</li>
-              ))}
-            </ol>
-          )}
-          {plan.affected_files && plan.affected_files.length > 0 && (
-            <p className="mt-3 text-xs text-gray-500">
-              Affected files: {plan.affected_files.join(", ")}
-            </p>
-          )}
-        </Section>
-      )}
-
-      {changes.length > 0 && (
-        <Section title={`Code changes (${changes.length})`}>
-          <div className="space-y-3">
-            {changes.map((c, i) => (
-              <DiffViewer
-                key={c.file_path ?? i}
-                filePath={c.file_path ?? ""}
-                patch={c.patch ?? ""}
-                description={c.description ?? ""}
-              />
-            ))}
-          </div>
-        </Section>
-      )}
-
-      {review && (
-        <Section title="Review">
-          <p className="text-sm">
-            <span
-              className={
-                review.approved ? "font-medium text-green-700" : "font-medium text-red-700"
-              }
-            >
-              {review.approved ? "Approved" : "Changes requested"}
-            </span>
-          </p>
-          {review.comments && review.comments.length > 0 && (
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-600">
-              {review.comments.map((c, i) => (
-                <li key={i}>{c}</li>
-              ))}
-            </ul>
-          )}
-          {review.security_issues && review.security_issues.length > 0 && (
-            <div className="mt-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-red-600">
-                Security
-              </p>
-              <ul className="list-disc space-y-1 pl-5 text-sm text-red-600">
-                {review.security_issues.map((s, i) => (
-                  <li key={i}>{s}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </Section>
-      )}
-
-      {pr && (
-        <Section title="Pull request draft">
-          <p className="text-sm font-medium text-gray-900">{pr.title}</p>
-          {pr.branch && (
-            <p className="mt-1 font-mono text-xs text-gray-500">
-              {pr.branch} → {pr.base_branch ?? "main"}
-            </p>
-          )}
-          {pr.body && (
-            <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded-md bg-gray-50 p-3 text-xs text-gray-700">
-              {pr.body}
-            </pre>
-          )}
-        </Section>
-      )}
-
-      {prUrl && (
-        <Section title="Pull request">
-          <p className="text-sm font-medium text-green-700">
-            ✓ Opened{prNumber != null ? ` · PR #${prNumber}` : ""}
-          </p>
-          <a
-            href={prUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 inline-block text-sm text-blue-600 hover:underline"
-          >
-            View on GitHub →
-          </a>
-        </Section>
-      )}
     </div>
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-4">
-      <h3 className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">{title}</h3>
-      {children}
-    </div>
-  )
-}

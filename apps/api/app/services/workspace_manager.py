@@ -57,6 +57,7 @@ class WorkspaceManager:
         path = parsed.path.rstrip("/")
         if not path.endswith(".git"):
             path += ".git"
+        pat = pat or settings.github_token
         if pat:
             return f"https://x-access-token:{pat}@{parsed.netloc}{path}"
         return f"https://{parsed.netloc}{path}"

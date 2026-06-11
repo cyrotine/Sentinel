@@ -9,9 +9,9 @@ export function RepositoriesHeader() {
   return (
     <div className="flex items-center justify-between">
       <div>
-        <h2 className="text-lg font-semibold text-gray-900">Repositories</h2>
-        <p className="mt-1 text-sm text-gray-500">
-          Connect a GitHub repository to begin analysis.
+        <h1 className="text-3xl font-semibold text-white tracking-tight">Repositories</h1>
+        <p className="mt-2 text-neutral-400">
+          Connect a GitHub repository to begin autonomous analysis.
         </p>
       </div>
       <ConnectRepositoryModal onSuccess={() => router.refresh()} />

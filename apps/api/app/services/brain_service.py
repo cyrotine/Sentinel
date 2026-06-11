@@ -76,6 +76,12 @@ class BrainService:
     ``agent_runs`` table. The graph itself never touches the database.
     """
 
+    def __init__(self):
+        self._active_snapshots: dict[uuid.UUID, dict[str, Any]] = {}
+
+    def get_snapshot(self, run_id: uuid.UUID) -> dict[str, Any] | None:
+        return self._active_snapshots.get(run_id)
+
     async def start(self, run_id: uuid.UUID) -> None:
         workspace_path: str | None = None
         async with AsyncSessionLocal() as session:
@@ -121,6 +127,7 @@ class BrainService:
                 )
 
                 accumulator: dict[str, Any] = {}
+                self._active_snapshots[run_id] = {}
 
                 async for chunk in graph.astream(
                     state,
@@ -131,6 +138,11 @@ class BrainService:
                         if not isinstance(partial, dict):
                             continue
                         accumulator.update(partial)
+                        
+                        # Expose intermediate accumulator data separately
+                        snapshot = {field: _dump(accumulator.get(field)) for field in _RESULT_FIELDS if field in accumulator}
+                        self._active_snapshots[run_id] = snapshot
+
                         await agent_run_repo.update_status(
                             session,
                             run_id,
@@ -185,6 +197,7 @@ class BrainService:
                 # Always remove the workspace, whether the run succeeded or failed.
                 if workspace_path:
                     workspace_manager.cleanup(str(run_id))
+                self._active_snapshots.pop(run_id, None)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -233,6 +246,7 @@ class BrainService:
         issue_num = selected_issue.number if selected_issue else 0
         commit_message = f"{subject}\n\nResolves #{issue_num}"
 
+        pat = repo_github_pat or settings.github_token
         try:
             git_result = await asyncio.to_thread(
                 git_service.commit_and_push,
@@ -241,7 +255,7 @@ class BrainService:
                 commit_message=commit_message,
                 files=applied_files,
                 github_url=repo_github_url,
-                pat=repo_github_pat,
+                pat=pat,
             )
         except Exception as exc:
             logger.exception("Unexpected error in git step for run %s", run_id)
@@ -288,7 +302,8 @@ class BrainService:
             logger.info("Skipping PR step: no pushed branch available")
             return None, None
 
-        if not repo_github_pat:
+        pat = repo_github_pat or settings.github_token
+        if not pat:
             logger.info("Skipping PR step: no PAT configured for repository")
             return None, None
 
@@ -301,7 +316,7 @@ class BrainService:
         try:
             pr_url, pr_number = await github_pr_service.create_pull_request(
                 full_name=repo_full_name,
-                pat=repo_github_pat,
+                pat=pat,
                 title=pull_request_draft.title,
                 body=pull_request_draft.body,
                 head=git_result.branch,

@@ -1,8 +1,16 @@
 import Link from "next/link"
 import { fetchAgentRuns, fetchRepositories } from "@/lib/api"
 import type { AgentRunOut, RepositoryOut } from "@/lib/api"
-import { StatusBadge } from "@/components/ui/status-badge"
 import { StartAgentRunButton } from "@/components/agents/start-agent-run-button"
+import { GitPullRequest, Clock, PlayCircle, CheckCircle2, XCircle, Loader2 } from "lucide-react"
+import { cn } from "@/lib/utils"
+
+function StatusIcon({ status, node }: { status: string; node: string | null }) {
+  if (status === "completed") return <CheckCircle2 className="h-5 w-5 text-green-500" />
+  if (status === "failed") return <XCircle className="h-5 w-5 text-red-500" />
+  if (status === "running") return <Loader2 className="h-5 w-5 text-blue-500 animate-spin" />
+  return <PlayCircle className="h-5 w-5 text-neutral-500" />
+}
 
 export async function AgentsPage() {
   let runs: AgentRunOut[] = []
@@ -16,7 +24,7 @@ export async function AgentsPage() {
     runs = runList.runs
     repos = repoList
   } catch {
-    // API not reachable — render empty state
+    // API not reachable
   }
 
   const repoNames = new Map(repos.map((r) => [r.id, r.full_name]))
@@ -24,57 +32,86 @@ export async function AgentsPage() {
     .filter((r) => r.latest_ingestion?.status === "completed")
     .map((r) => ({ id: r.id, full_name: r.full_name }))
 
+  function formatTime(isoStr: string | null) {
+    if (!isoStr) return "—"
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "numeric",
+      month: "short",
+      day: "numeric",
+    }).format(new Date(isoStr))
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+    <div className="max-w-5xl mx-auto py-8 space-y-8">
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Agents</h2>
-          <p className="mt-1 text-sm text-gray-500">
-            Run the autonomous pipeline on a repository and watch it work end to end.
+          <h1 className="text-3xl font-semibold text-white tracking-tight">Agent Runs</h1>
+          <p className="mt-2 text-neutral-400">
+            Monitor autonomous agents transforming issues into pull requests.
           </p>
         </div>
         <StartAgentRunButton repos={indexedRepos} />
       </div>
 
       {runs.length === 0 ? (
-        <div className="rounded-lg border border-gray-200 bg-white p-6">
-          <p className="text-sm text-gray-500">
-            No agent runs yet. Select an indexed repository above and run the agents.
-          </p>
+        <div className="flex flex-col items-center justify-center p-12 rounded-xl border border-neutral-800 bg-neutral-900/30 border-dashed">
+          <GitPullRequest className="h-10 w-10 text-neutral-600 mb-4" />
+          <p className="text-neutral-300 font-medium">No agent runs yet</p>
+          <p className="text-neutral-500 text-sm mt-1">Select an indexed repository and start a run.</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-          <table className="w-full text-sm">
-            <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-4 py-2 text-left font-medium">Repository</th>
-                <th className="px-4 py-2 text-left font-medium">Status</th>
-                <th className="px-4 py-2 text-left font-medium">Stage</th>
-                <th className="px-4 py-2 text-left font-medium">Started</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {runs.map((run) => (
-                <tr key={run.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-2">
-                    <Link
-                      href={`/agents/${run.id}`}
-                      className="font-medium text-blue-600 hover:underline"
-                    >
-                      {repoNames.get(run.repository_id) ?? run.repository_id.slice(0, 8)}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2">
-                    <StatusBadge status={run.status} />
-                  </td>
-                  <td className="px-4 py-2 text-gray-500">{run.current_node ?? "—"}</td>
-                  <td className="px-4 py-2 text-gray-500">
-                    {run.started_at ? new Date(run.started_at).toLocaleString() : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-3">
+          {runs.map((run) => {
+            const repoName = repoNames.get(run.repository_id) ?? "Unknown Repository"
+            const issueTitle = (run.result?.selected_issue as any)?.title || "Resolving Issue..."
+            
+            return (
+              <Link 
+                key={run.id} 
+                href={`/agents/${run.id}`}
+                className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl border border-neutral-800 bg-neutral-900/50 hover:bg-neutral-800 hover:border-neutral-700 transition-all duration-200"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center justify-center bg-neutral-950 rounded-full h-10 w-10 border border-neutral-800">
+                    <StatusIcon status={run.status} node={run.current_node} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-medium text-white group-hover:text-blue-400 transition-colors">
+                      {issueTitle}
+                    </h3>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-neutral-500">
+                      <span className="font-mono">{repoName}</span>
+                      <span>•</span>
+                      <span className={cn(
+                        "font-medium uppercase tracking-wider text-[10px] px-1.5 py-0.5 rounded-sm",
+                        run.status === "completed" ? "bg-green-500/10 text-green-400" :
+                        run.status === "failed" ? "bg-red-500/10 text-red-400" :
+                        run.status === "running" ? "bg-blue-500/10 text-blue-400" :
+                        "bg-neutral-800 text-neutral-400"
+                      )}>
+                        {run.status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-8 mt-4 sm:mt-0 text-xs text-neutral-400">
+                  <div className="flex flex-col gap-1 items-start sm:items-end w-32">
+                    <span className="text-neutral-500 uppercase tracking-wider text-[10px] font-medium">Stage</span>
+                    <span className="text-white capitalize">{run.current_node ? run.current_node.replace(/_/g, " ") : "Initializing"}</span>
+                  </div>
+                  <div className="flex flex-col gap-1 items-start sm:items-end w-32">
+                    <span className="text-neutral-500 uppercase tracking-wider text-[10px] font-medium">Started</span>
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-neutral-500" />
+                      <span>{formatTime(run.started_at)}</span>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            )
+          })}
         </div>
       )}
     </div>
