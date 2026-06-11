@@ -89,6 +89,8 @@ export function AgentRunDetail({ runId }: { runId: string }) {
   const plan = result?.plan as PlanShape | null | undefined
   const review = result?.review as ReviewShape | null | undefined
   const pr = result?.pull_request_draft as PrShape | null | undefined
+  const prUrl = result?.pull_request_url ?? null
+  const prNumber = result?.pull_request_number ?? null
   const changes = (result?.code_changes ?? []) as CodeChangeShape[]
 
   return (
@@ -221,6 +223,22 @@ export function AgentRunDetail({ runId }: { runId: string }) {
               {pr.body}
             </pre>
           )}
+        </Section>
+      )}
+
+      {prUrl && (
+        <Section title="Pull request">
+          <p className="text-sm font-medium text-green-700">
+            ✓ Opened{prNumber != null ? ` · PR #${prNumber}` : ""}
+          </p>
+          <a
+            href={prUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-block text-sm text-blue-600 hover:underline"
+          >
+            View on GitHub →
+          </a>
         </Section>
       )}
     </div>

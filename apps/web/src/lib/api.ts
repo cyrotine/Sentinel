@@ -141,6 +141,8 @@ export interface AgentRunResult {
   code_changes: Record<string, unknown>[]
   review: Record<string, unknown> | null
   pull_request_draft: Record<string, unknown> | null
+  pull_request_url: string | null
+  pull_request_number: number | null
 }
 
 export interface AgentRunOut {
