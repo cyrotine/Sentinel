@@ -35,6 +35,8 @@ _RESULT_FIELDS = (
     "patch_results",
     "review",
     "pull_request_draft",
+    "iteration",
+    "repair_context",
 )
 
 

@@ -26,6 +26,8 @@ class AgentRunResult(BaseModel):
     pull_request_draft: dict | None = None
     pull_request_url: str | None = None
     pull_request_number: int | None = None
+    iteration: int | None = None
+    repair_context: dict | None = None
 
 
 class AgentRunOut(BaseModel):

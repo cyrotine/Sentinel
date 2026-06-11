@@ -39,6 +39,16 @@ interface CodeChangeShape {
   patch?: string
   description?: string
 }
+interface RepairShape {
+  iteration?: number
+  triggers?: string[]
+}
+
+const TRIGGER_LABELS: Record<string, string> = {
+  patch_failed: "patch failed to apply",
+  validation_failed: "validation failed",
+  review_rejected: "review rejected",
+}
 
 export function AgentRunDetail({ runId }: { runId: string }) {
   const [run, setRun] = useState<AgentRunOut | null>(null)
@@ -92,6 +102,12 @@ export function AgentRunDetail({ runId }: { runId: string }) {
   const prUrl = result?.pull_request_url ?? null
   const prNumber = result?.pull_request_number ?? null
   const changes = (result?.code_changes ?? []) as CodeChangeShape[]
+  const iteration = result?.iteration ?? null
+  const repairContext = result?.repair_context as RepairShape | null | undefined
+  const repaired = iteration != null && iteration > 1
+  const repairTriggers = (repairContext?.triggers ?? [])
+    .map((t) => TRIGGER_LABELS[t] ?? t)
+    .join(", ")
 
   return (
     <div className="space-y-6">
@@ -103,6 +119,14 @@ export function AgentRunDetail({ runId }: { runId: string }) {
           <span className="text-gray-300">/</span>
           <h2 className="font-mono text-sm text-gray-900">{run.id.slice(0, 8)}</h2>
           <StatusBadge status={run.status} />
+          {repaired && (
+            <span
+              className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700"
+              title={repairTriggers ? `Last trigger: ${repairTriggers}` : undefined}
+            >
+              ↻ Repaired · {iteration} attempts
+            </span>
+          )}
         </div>
         {!TERMINAL.has(run.status) && (
           <span className="text-xs text-gray-500">

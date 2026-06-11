@@ -183,6 +183,43 @@ class PatchResult(BaseModel):
     )
 
 
+class RepairContext(BaseModel):
+    """Why the developer is being re-invoked, assembled from the prior attempt's failures.
+
+    Built by the ``developer`` graph node from existing :class:`SentinelState` fields on
+    retry iterations (it is ``None`` on the first attempt). Carries the minimum the LLM needs
+    to correct its specific mistakes: the diffs that failed to apply (with the current
+    on-disk file content to re-diff against), plus validation and review feedback.
+    """
+
+    iteration: int = Field(
+        ..., description="The iteration at which this repair was triggered"
+    )
+    triggers: list[str] = Field(
+        default_factory=list,
+        description="Active failure modes: any of 'patch_failed', 'validation_failed', 'review_rejected'",
+    )
+    failed_patches: list[PatchResult] = Field(
+        default_factory=list,
+        description="PatchResults with applied is False, carrying failed_patch + full_file_content",
+    )
+    validation_issues: list[str] = Field(
+        default_factory=list, description="Problems reported by the Validator agent"
+    )
+    validation_suggestions: list[str] = Field(
+        default_factory=list, description="Fixes suggested by the Validator agent"
+    )
+    review_comments: list[str] = Field(
+        default_factory=list, description="General comments from the Reviewer agent"
+    )
+    review_security_issues: list[str] = Field(
+        default_factory=list, description="Security concerns raised by the Reviewer agent"
+    )
+    review_suggestions: list[str] = Field(
+        default_factory=list, description="Improvement suggestions from the Reviewer agent"
+    )
+
+
 class GitResult(BaseModel):
     """Outcome of committing and pushing the patched workspace to the remote.
 
@@ -485,6 +522,10 @@ class SentinelState(BaseModel):
     patch_results: list[PatchResult] = Field(
         default_factory=list,
         description="Results of applying each CodeChange to the workspace",
+    )
+    repair_context: RepairContext | None = Field(
+        default=None,
+        description="Failure feedback fed to the developer on the current retry iteration; None on first attempt",
     )
 
     # --- Phase 6: Validate (validator, test_agent, reviewer) ---
