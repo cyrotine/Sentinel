@@ -183,6 +183,26 @@ class PatchResult(BaseModel):
     )
 
 
+class GitResult(BaseModel):
+    """Outcome of committing and pushing the patched workspace to the remote.
+
+    Produced by BrainService via GitService *after* the graph completes — it is
+    intentionally NOT a SentinelState field, because the push requires the PAT,
+    which must never enter streamed/persisted graph state.
+    """
+
+    branch: str = Field(..., description="The branch actually created and pushed (authoritative for Phase 6)")
+    committed: bool = Field(..., description="Whether a commit was created")
+    commit_sha: str | None = Field(default=None, description="SHA of the created commit, if any")
+    pushed: bool = Field(..., description="Whether the branch was pushed to the remote")
+    files_committed: list[str] = Field(
+        default_factory=list, description="Repo-relative paths staged and committed"
+    )
+    error: str | None = Field(
+        default=None, description="git failure reason when committed/pushed is False"
+    )
+
+
 class TestResult(BaseModel):
     """Result of a single test case, produced by the Test agent."""
 
