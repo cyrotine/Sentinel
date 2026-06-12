@@ -1,5 +1,5 @@
 import { fetchRepositories, type RepositoryOut } from "@/lib/api"
-import { RepositoryCard } from "@/components/repositories/repository-card"
+import { RepositoriesListClient } from "@/components/repositories/repositories-list-client"
 import { RepositoriesHeader } from "@/components/repositories/repositories-header"
 import { FolderGit2 } from "lucide-react"
 
@@ -24,11 +24,7 @@ export default async function RepositoriesPage() {
           </p>
         </div>
       ) : (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {repos.map((repo) => (
-            <RepositoryCard key={repo.id} repo={repo} />
-          ))}
-        </div>
+        <RepositoriesListClient initialRepos={repos} />
       )}
     </div>
   )

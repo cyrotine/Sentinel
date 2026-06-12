@@ -11,6 +11,26 @@ import { cn } from "@/lib/utils"
 const TERMINAL = new Set(["completed", "failed"])
 const POLL_INTERVAL_MS = 2000
 
+type PipelineStage = "issue_selection" | "planner" | "developer" | "reviewer" | "pull_request"
+
+// Maps the authoritative LangGraph node (run.current_node, written at node
+// *start*) to a pipeline stage. This is the source of truth for the *active*
+// step — result-presence only tells us which steps have *finished*.
+// Node names mirror packages/workflows/forge_workflows/graph.py constants.
+const NODE_TO_STAGE: Record<string, PipelineStage> = {
+  repo_analyzer: "issue_selection",
+  issue_analyzer: "issue_selection",
+  retrieve_context: "issue_selection",
+  load_full_files: "issue_selection",
+  planner: "planner",
+  developer: "developer",
+  apply_patches: "developer",
+  validator: "developer",
+  test_agent: "developer",
+  reviewer: "reviewer",
+  pr_generator: "pull_request",
+}
+
 interface PlanShape {
   approach_reasoning?: string
   affected_files?: string[]
@@ -175,14 +195,19 @@ export function AgentRunDetail({ runId }: { runId: string }) {
   const isReviewDone = !!review
   const isPrDone = !!prUrl || run.status === "completed"
 
-  const activeStage = 
+  // Prefer the live current_node (written at node start) so the active step
+  // tracks execution in real time. Fall back to result-presence inference when
+  // current_node is null (pending/completed) or an unmapped node.
+  const liveStage = run.current_node ? NODE_TO_STAGE[run.current_node] : undefined
+  const activeStage =
     isFailed ? "failed" :
     isPrDone ? "completed" :
-    isReviewDone ? "reviewer" :
-    isDevDone ? "validator" :
-    isPlanDone ? "developer" :
-    isIssueDone ? "planner" : 
-    "issue_selection"
+    liveStage ??
+    (isReviewDone ? "reviewer" :
+     isDevDone ? "validator" :
+     isPlanDone ? "developer" :
+     isIssueDone ? "planner" :
+     "issue_selection")
 
   return (
     <div className="max-w-6xl mx-auto py-8 space-y-8">
