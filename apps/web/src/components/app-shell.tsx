@@ -7,9 +7,9 @@ import { Hexagon, LayoutDashboard, Settings, PlayCircle, GitBranch, FolderGit2 }
 
 const navItems = [
   { label: "Overview", href: "/", icon: LayoutDashboard },
-  { label: "Agent Runs", href: "/agents", icon: GitBranch },
   { label: "Repositories", href: "/repositories", icon: FolderGit2 },
-  { label: "Demo Mode", href: "/demo-mode", icon: PlayCircle },
+  { label: "Agent", href: "/agents", icon: GitBranch },
+  { label: "Past Repositories", href: "/demo-mode", icon: PlayCircle },
   { label: "Settings", href: "/settings", icon: Settings },
 ]
 

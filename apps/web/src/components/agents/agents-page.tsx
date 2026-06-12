@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { fetchAgentRuns, fetchRepositories } from "@/lib/api"
 import type { AgentRunOut, RepositoryOut } from "@/lib/api"
-import { StartAgentRunButton } from "@/components/agents/start-agent-run-button"
 import { GitPullRequest, Clock, PlayCircle, CheckCircle2, XCircle, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -28,9 +27,6 @@ export async function AgentsPage() {
   }
 
   const repoNames = new Map(repos.map((r) => [r.id, r.full_name]))
-  const indexedRepos = repos
-    .filter((r) => r.latest_ingestion?.status === "completed")
-    .map((r) => ({ id: r.id, full_name: r.full_name }))
 
   function formatTime(isoStr: string | null) {
     if (!isoStr) return "—"
@@ -44,14 +40,11 @@ export async function AgentsPage() {
 
   return (
     <div className="max-w-5xl mx-auto py-8 space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold text-white tracking-tight">Agent Runs</h1>
-          <p className="mt-2 text-neutral-400">
-            Monitor autonomous agents transforming issues into pull requests.
-          </p>
-        </div>
-        <StartAgentRunButton repos={indexedRepos} />
+      <div>
+        <h1 className="text-3xl font-semibold text-white tracking-tight">Agent Runs</h1>
+        <p className="mt-2 text-neutral-400">
+          Monitor autonomous agents transforming issues into pull requests.
+        </p>
       </div>
 
       {runs.length === 0 ? (

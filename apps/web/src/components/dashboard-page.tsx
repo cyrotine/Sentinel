@@ -37,17 +37,17 @@ export async function DashboardPage() {
           </div>
 
           <div className="flex items-center gap-4 pt-4">
-            <Link 
-              href="/agents" 
+            <Link
+              href="/repositories"
               className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-white text-black font-medium hover:bg-neutral-200 transition-colors"
             >
-              Start Autonomous Run <ArrowRight className="h-4 w-4" />
+              Add Repository <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link 
-              href="/demo-mode" 
+            <Link
+              href="/demo-mode"
               className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-neutral-900 text-white font-medium border border-neutral-800 hover:bg-neutral-800 transition-colors"
             >
-              <Play className="h-4 w-4" /> View Demo
+              <Play className="h-4 w-4" /> View Past Repo
             </Link>
           </div>
         </div>
