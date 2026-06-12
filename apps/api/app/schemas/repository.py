@@ -92,6 +92,7 @@ class IssueOut(BaseModel):
     id: uuid.UUID
     number: int
     title: str
+    body: str | None
     state: str
     labels: list[str]
 

@@ -58,6 +58,11 @@ export function IssuesList({ issues, total, repositoryId }: Props) {
             </span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm text-gray-800">{issue.title}</p>
+              {issue.body && (
+                <p className="mt-0.5 text-xs text-gray-400 line-clamp-2 leading-relaxed">
+                  {issue.body}
+                </p>
+              )}
               {issue.labels.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-1">
                   {issue.labels.map((label) => (
