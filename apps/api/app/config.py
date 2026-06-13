@@ -1,4 +1,12 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve .env files by absolute path so settings load regardless of the
+# process working directory (uvicorn/celery/scripts may run from anywhere).
+# apps/api/app/config.py -> parents[1] == apps/api, parents[3] == repo root.
+_API_ENV = Path(__file__).resolve().parents[1] / ".env"
+_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 
 
 class Settings(BaseSettings):
@@ -13,7 +21,11 @@ class Settings(BaseSettings):
     api_port: int = 8000
     debug: bool = False
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Later files take precedence; repo-root .env overrides apps/api/.env.
+    model_config = SettingsConfigDict(
+        env_file=(str(_API_ENV), str(_ROOT_ENV)),
+        extra="ignore",
+    )
 
 
 settings = Settings()
