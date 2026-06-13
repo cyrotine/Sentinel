@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Forge — Project Report</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: #1a1d23; font-size: 10.5pt; line-height: 1.5; margin: 0;
+  }
+  h1, h2, h3 { color: #0b1220; line-height: 1.25; }
+  h1 { font-size: 26pt; margin: 0 0 4px; letter-spacing: -0.5px; }
+  h2 {
+    font-size: 15pt; margin: 26px 0 10px; padding-bottom: 5px;
+    border-bottom: 2px solid #2563eb;
+  }
+  h3 { font-size: 11.5pt; margin: 16px 0 6px; color: #1e3a8a; }
+  p { margin: 6px 0; }
+  code {
+    font-family: "SF Mono", Menlo, monospace; font-size: 9pt;
+    background: #f1f5f9; padding: 1px 4px; border-radius: 3px; color: #b91c1c;
+  }
+  .muted { color: #64748b; }
+  a { color: #2563eb; text-decoration: none; }
+
+  /* Cover */
+  .cover {
+    height: 245mm; display: flex; flex-direction: column;
+    justify-content: center; page-break-after: always;
+    background: linear-gradient(135deg, #0b1220 0%, #1e3a8a 100%);
+    color: #fff; margin: -18mm -16mm 0; padding: 0 24mm;
+  }
+  .cover h1 { color: #fff; font-size: 44pt; }
+  .cover .tag { font-size: 15pt; color: #93c5fd; margin-top: 8px; font-weight: 500; }
+  .cover .meta { margin-top: 40px; font-size: 10.5pt; color: #cbd5e1; }
+  .cover .meta b { color: #fff; }
+  .pill {
+    display: inline-block; background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.25); border-radius: 20px;
+    padding: 4px 14px; font-size: 9.5pt; margin: 4px 6px 0 0; color: #e2e8f0;
+  }
+
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9.5pt; }
+  th, td { text-align: left; padding: 6px 9px; border: 1px solid #e2e8f0; vertical-align: top; }
+  th { background: #f8fafc; color: #0b1220; font-weight: 600; }
+  tr:nth-child(even) td { background: #fbfcfe; }
+
+  .done { color: #15803d; font-weight: 600; }
+  .pending { color: #b45309; font-weight: 600; }
+  .deferred { color: #6b7280; font-weight: 600; }
+
+  .card {
+    border: 1px solid #e2e8f0; border-left: 4px solid #2563eb;
+    border-radius: 6px; padding: 10px 14px; margin: 10px 0; background: #fbfcfe;
+  }
+  .card h3 { margin-top: 0; }
+
+  .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .stat {
+    flex: 1; min-width: 120px; border: 1px solid #e2e8f0; border-radius: 6px;
+    padding: 12px 14px; background: #f8fafc; text-align: center;
+  }
+  .stat .n { font-size: 22pt; font-weight: 700; color: #2563eb; display: block; }
+  .stat .l { font-size: 8.5pt; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  .flow {
+    font-family: "SF Mono", Menlo, monospace; font-size: 8.5pt;
+    background: #0b1220; color: #e2e8f0; padding: 14px 16px; border-radius: 6px;
+    white-space: pre; overflow: hidden; line-height: 1.4;
+  }
+  .flow .n { color: #93c5fd; }
+  .flow .r { color: #fca5a5; }
+
+  .section { page-break-inside: avoid; }
+  ul { margin: 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  .footer-note { margin-top: 30px; padding-top: 10px; border-top: 1px solid #e2e8f0; font-size: 8.5pt; color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<div class="cover">
+  <h1>Forge</h1>
+  <div class="tag">An Autonomous Multi-Agent Open Source Engineer</div>
+  <div class="meta">
+    <span class="pill">FastAPI · Python 3.12</span>
+    <span class="pill">Next.js 15 · TypeScript</span>
+    <span class="pill">LangGraph · LangChain</span>
+    <span class="pill">PostgreSQL · Qdrant</span>
+    <span class="pill">tree-sitter · GitPython</span>
+    <br>
+    <div style="margin-top:36px;">
+      <b>Project Status Report</b><br>
+      Generated 13 June 2026<br>
+      Branch: <b>feature/live-agent-outputs</b><br>
+      Author: Prahar
+    </div>
+  </div>
+</div>
+
+<!-- EXEC SUMMARY -->
+<div class="section">
+<h2>1. Executive Summary</h2>
+<p><b>Forge</b> is an autonomous software-engineering platform that behaves like a small
+engineering team. It connects to a GitHub repository, builds a semantic understanding of
+the codebase, analyzes an issue, plans an implementation, writes the code, validates and
+reviews its own work, and prepares a pull request — with minimal human intervention.</p>
+
+<p>The guiding principle is <b>execution over conversation</b>: every feature must help the
+system <b>Think</b>, <b>Decide</b>, or <b>Act</b>. The product is built as a Turborepo monorepo
+combining a FastAPI backend, a Next.js 15 dashboard, and a LangGraph multi-agent workflow
+engine shared across reusable Python packages.</p>
+
+<div class="grid" style="margin-top:14px;">
+  <div class="stat"><span class="n">6</span><span class="l">Core Agents</span></div>
+  <div class="stat"><span class="n">11</span><span class="l">Workflow Nodes</span></div>
+  <div class="stat"><span class="n">7 / 7</span><span class="l">Critical Phases Done</span></div>
+  <div class="stat"><span class="n">6</span><span class="l">Python Packages</span></div>
+  <div class="stat"><span class="n">20+</span><span class="l">React Components</span></div>
+</div>
+</div>
+
+<!-- ARCHITECTURE -->
+<div class="section">
+<h2>2. System Architecture</h2>
+<p>Forge is a pnpm + uv monorepo with two deployable apps and six shared packages. The
+LangGraph workflow is <b>application-agnostic</b>: graph nodes are pure functions that never
+touch the database or construct LLM clients — all dependencies are injected, and all
+repository data is pre-loaded into typed state by the backend's <code>BrainService</code>.</p>
+
+<table>
+  <tr><th>Layer</th><th>Component</th><th>Responsibility</th></tr>
+  <tr><td rowspan="2"><b>apps/</b></td><td><code>web</code> (Next.js 15)</td><td>Dashboard, repositories, agent center, live run detail, settings</td></tr>
+  <tr><td><code>api</code> (FastAPI)</td><td>Routes, services, repositories (DB layer), schemas, models, Alembic migrations</td></tr>
+  <tr><td rowspan="6"><b>packages/</b></td><td><code>agents</code></td><td>11 LangGraph agent definitions (analyzer → PR generator)</td></tr>
+  <tr><td><code>workflows</code></td><td>The compiled <code>StateGraph</code> and typed <code>SentinelState</code></td></tr>
+  <tr><td><code>repository-analysis</code></td><td>tree-sitter analyzer, chunker, Gemini embedder, language detection</td></tr>
+  <tr><td><code>vector-store</code></td><td>Qdrant client wrapper for semantic code search</td></tr>
+  <tr><td><code>github</code></td><td>GitHub REST API client (repos, issues, PRs)</td></tr>
+  <tr><td><code>shared</code></td><td>Shared TypeScript types across the frontend</td></tr>
+</table>
+
+<h3>Backend layering</h3>
+<p>The API follows a strict <b>routes → services → repositories → models</b> separation. Route
+handlers contain no business logic. Services include <code>BrainService</code>,
+<code>IngestionService</code>, <code>WorkspaceManager</code>, <code>PatchExecutor</code>,
+<code>GitService</code>, and <code>GitHubPRService</code>.</p>
+</div>
+
+<!-- AGENT PIPELINE -->
+<div class="section">
+<h2>3. The Multi-Agent Pipeline</h2>
+<p>The heart of Forge is a LangGraph <code>StateGraph</code> with conditional feedback loops.
+A single typed object, <code>SentinelState</code>, flows through every node; agents communicate
+<b>only</b> through structured state — never free-form text.</p>
+
+<div class="flow"><span class="n">START</span>
+  → <span class="n">repo_analyzer</span>        understand structure &amp; tech stack
+  → <span class="n">issue_analyzer</span>       classify the selected issue
+  → <span class="n">retrieve_context</span>     semantic search over Qdrant (top-5 chunks)
+  → <span class="n">load_full_files</span>      read complete files from workspace
+  → <span class="n">planner</span>              tasks, affected files, dependencies
+  → <span class="n">developer</span>            generate unified-diff patches
+  → <span class="n">apply_patches</span>  ──┐
+  │     <span class="r">patch failed &amp; retries left → developer</span>
+  → <span class="n">validator</span>      ──┐
+  │     <span class="r">invalid &amp; retries left → developer</span>
+  → <span class="n">test_agent</span>           LLM-simulated test verification
+  → <span class="n">reviewer</span>       ──┐
+  │     <span class="r">rejected &amp; retries left → developer</span>
+  → <span class="n">pr_generator</span>         PR title + body draft
+<span class="n">END</span></div>
+
+<h3>The six core agents</h3>
+<table>
+  <tr><th>Agent</th><th>Role</th><th>Structured Output</th></tr>
+  <tr><td>Issue Analyzer</td><td>Classify type, severity, impact, confidence</td><td><code>IssueAnalysis</code></td></tr>
+  <tr><td>Planner</td><td>Identify affected files, build task DAG &amp; strategy</td><td><code>Plan</code> (tasks, affected_files, dependencies)</td></tr>
+  <tr><td>Developer</td><td>Generate code changes as unified diffs (never commits)</td><td><code>list[CodeChange]</code></td></tr>
+  <tr><td>QA / Test</td><td>Reason about tests &amp; coverage (LLM-simulated for now)</td><td><code>list[TestResult]</code></td></tr>
+  <tr><td>Reviewer</td><td>Find bugs, security risks, suggest improvements</td><td><code>Review</code> (approved, comments, security)</td></tr>
+  <tr><td>PR Agent</td><td>Generate PR title, body, release notes</td><td><code>PullRequestDraft</code></td></tr>
+</table>
+<p class="muted">Supporting nodes: <code>Repo Analyzer</code>, <code>Retrieve Context</code>,
+<code>Load Full Files</code>, and the <code>Validator</code> (a lightweight pre-review check).</p>
+</div>
+
+<!-- AUTO REPAIR -->
+<div class="section">
+<h2>4. The Auto-Repair Loop</h2>
+<p>Forge's standout capability is <b>self-correction</b>. Three conditional edges route work
+back to the Developer agent when something fails, bounded by <code>max_iterations</code>
+(default 3):</p>
+<ul>
+  <li><b>Patch failure</b> — if a unified diff does not apply cleanly, the full file content
+      plus the failed patch are fed back for regeneration.</li>
+  <li><b>Validation failure</b> — the Validator's issues and suggestions are returned to the Developer.</li>
+  <li><b>Review rejection</b> — the Reviewer's comments, security concerns, and suggestions trigger a retry.</li>
+</ul>
+<p>This feedback is packaged into a <code>RepairContext</code> object carrying exactly the
+information the LLM needs to fix its specific mistakes. Failures are never silently
+swallowed — they surface in the agent-run status.</p>
+</div>
+
+<!-- IMPLEMENTATION STATUS -->
+<div class="section">
+<h2>5. Implementation Status</h2>
+<p>The roadmap defines an 11-phase critical path from "PR draft generator" to "autonomous
+GitHub engineer." <b>All seven critical-path phases are complete.</b></p>
+<table>
+  <tr><th>Phase</th><th>Deliverable</th><th>Status</th></tr>
+  <tr><td>1</td><td>Surface real diffs in UI (<code>DiffViewer</code>)</td><td class="done">✅ Done</td></tr>
+  <tr><td>2</td><td>Repository Workspace (<code>WorkspaceManager</code> — clone via PAT)</td><td class="done">✅ Done</td></tr>
+  <tr><td>3</td><td>Full File Retrieval (<code>FileLoader</code>)</td><td class="done">✅ Done</td></tr>
+  <tr><td>4</td><td>Patch Executor (apply &amp; validate unified diffs)</td><td class="done">✅ Done</td></tr>
+  <tr><td>5</td><td>Git Operations (<code>GitService</code> — branch, commit, push)</td><td class="done">✅ Done</td></tr>
+  <tr><td>6</td><td>GitHub PR Creation (<code>GitHubPRService</code>)</td><td class="done">✅ Done</td></tr>
+  <tr><td>7</td><td>Auto-Repair Loop (conditional edges)</td><td class="done">✅ Done</td></tr>
+  <tr><td>8–9</td><td>Real validation &amp; test execution</td><td class="deferred">◷ Deferred (needs Docker)</td></tr>
+  <tr><td>10</td><td>Docker sandbox (CPU/mem/network limits)</td><td class="deferred">◷ Deferred</td></tr>
+  <tr><td>11</td><td>Observability (OpenTelemetry, token metrics)</td><td class="deferred">◷ Deferred</td></tr>
+</table>
+
+<h3>Foundational capabilities (all complete)</h3>
+<p>Repository ingestion, repository analysis, issue retrieval &amp; selection, context retrieval,
+implementation planning, patch generation, code review, and PR draft generation are all
+operational end-to-end.</p>
+</div>
+
+<!-- FRONTEND -->
+<div class="section">
+<h2>6. Frontend &amp; Real-Time Experience</h2>
+<p>The Next.js 15 dashboard is designed to feel like "GitHub × Linear × Cursor × Datadog" —
+clean, fast, technical, and real-time. Pages include the Dashboard, Repositories (list &amp;
+detail with file tree + language breakdown), the Agent Center, a live Agent Run Detail view,
+and Settings.</p>
+<p>Recent work on the current branch (<code>feature/live-agent-outputs</code>) makes the
+autonomy <b>legible</b>: instead of staring at a spinner while a 30–90s run executes, the user
+watches each agent's output stream in as a distinct animated card — issue-analysis metadata,
+planner tasks, syntax-highlighted code diffs, review findings, and the PR draft preview. This
+builds on the prior "real-time frontend synchronization" work that tracks the live pipeline stage.</p>
+<h3>New components in flight</h3>
+<ul>
+  <li><code>issue-analysis-card.tsx</code> — severity, confidence, impact metadata</li>
+  <li><code>output-card.tsx</code> — generic animated container for each agent's result</li>
+  <li><code>pr-draft-card.tsx</code> — PR title/body preview</li>
+  <li><code>diff-viewer.tsx</code> — unified-diff renderer with copy-to-clipboard</li>
+</ul>
+</div>
+
+<!-- SECURITY / DECISIONS -->
+<div class="section">
+<h2>7. Key Architectural Decisions</h2>
+<div class="card">
+  <h3>GitHub authentication via Personal Access Token</h3>
+  <p>Write operations use the user's PAT (scope: <code>repo</code>), collected at repository
+  connection and stored <b>encrypted</b> on the <code>Repository</code> model
+  (<code>github_pat</code> column, migration 003). It is never logged and never returned to the
+  frontend. GitHub App / OAuth flows are intentionally avoided.</p>
+</div>
+<div class="card">
+  <h3>Per-run ephemeral workspaces</h3>
+  <p>Each run clones the target repo once to <code>/tmp/forge-workspaces/{agent_run_id}/</code>.
+  Agents read complete files from disk (not the GitHub API) for editing. Cleanup always runs on
+  completion; workspaces are never reused.</p>
+</div>
+<div class="card">
+  <h3>Safety constraints</h3>
+  <p>No destructive GitHub actions — no force pushes, no branch deletion. The PAT never enters
+  streamed or persisted graph state. The current MVP targets small static HTML/CSS repositories,
+  with Docker-sandboxed execution deferred until the core pipeline is proven.</p>
+</div>
+</div>
+
+<!-- DATA MODEL -->
+<div class="section">
+<h2>8. Data &amp; State Model</h2>
+<p>Every workflow state is a Pydantic model — raw dictionaries are never passed between nodes.
+PostgreSQL holds repositories, issues, repository files, ingestion runs, and agent runs (three
+Alembic migrations). Qdrant holds per-repository embeddings (Gemini <code>text-embedding-004</code>)
+for semantic retrieval. The central <code>SentinelState</code> is organized by pipeline phase:
+Understand → Decide → Retrieve → Plan → Execute → Validate → Ship.</p>
+</div>
+
+<!-- ROADMAP -->
+<div class="section">
+<h2>9. What's Next</h2>
+<ul>
+  <li><b>Docker sandbox (Phase 10)</b> — isolate all build/test/lint execution with CPU, memory,
+      timeout, and network limits before handling untrusted repositories.</li>
+  <li><b>Real validation &amp; test execution (Phases 8–9)</b> — replace LLM-simulated checks with
+      <code>py_compile</code>, <code>tsc</code>, <code>pytest</code>, <code>npm test</code> inside the sandbox.</li>
+  <li><b>Observability (Phase 11)</b> — OpenTelemetry traces, token-usage tracking, run success/failure metrics.</li>
+  <li><b>Scale beyond static HTML</b> — expand from the 2–3 file MVP profile to full application codebases.</li>
+</ul>
+
+<p class="footer-note">Forge — Autonomous Multi-Agent Open Source Engineer · Project report
+generated from a full source scan on 13 June 2026 · Confidential.</p>
+</div>
+
+</body>
+</html>

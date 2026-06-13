@@ -5,7 +5,9 @@ import Link from "next/link"
 import { fetchAgentRun } from "@/lib/api"
 import type { AgentRunOut } from "@/lib/api"
 import { DiffViewer } from "@/components/agents/diff-viewer"
-import { CheckCircle2, Circle, Clock, GitPullRequest, Loader2, PlayCircle, Terminal, XCircle, FileCode, CheckSquare, GitBranch } from "lucide-react"
+import { IssueAnalysisCard, type IssueAnalysisShape } from "@/components/agents/issue-analysis-card"
+import { PrDraftCard } from "@/components/agents/pr-draft-card"
+import { CheckCircle2, Circle, Clock, GitPullRequest, Loader2, PlayCircle, Terminal, XCircle, FileCode, CheckSquare, GitBranch, ShieldAlert, Lightbulb, Folder } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const TERMINAL = new Set(["completed", "failed"])
@@ -174,6 +176,10 @@ export function AgentRunDetail({ runId }: { runId: string }) {
 
   const result = run.result
   const issue = result?.selected_issue as SelectedIssueShape | null | undefined
+  const issueAnalyses = (result?.issue_analyses ?? []) as IssueAnalysisShape[]
+  const issueAnalysis = issue
+    ? issueAnalyses.find((a) => a.number === issue.number) ?? issueAnalyses[0]
+    : undefined
   const plan = result?.plan as PlanShape | null | undefined
   const review = result?.review as ReviewShape | null | undefined
   const pr = result?.pull_request_draft as PrShape | null | undefined
@@ -288,11 +294,13 @@ export function AgentRunDetail({ runId }: { runId: string }) {
         <div className="p-4 space-y-2 max-h-64 overflow-y-auto">
           <ActivityLogItem time={run.started_at ?? undefined} message="Initializing autonomous agent workspace..." />
           {isIssueDone && <ActivityLogItem time={run.started_at ?? undefined} message={`Selected issue: ${issue?.title}`} type="success" />}
-          {isPlanDone && <ActivityLogItem message="Generated execution plan and identified target files." />}
+          {issueAnalysis?.severity && <ActivityLogItem message={`Analyzed issue — ${issueAnalysis.issue_type ?? "issue"}, severity ${issueAnalysis.severity}.`} />}
+          {isPlanDone && <ActivityLogItem message={`Generated execution plan${plan?.affected_files?.length ? ` across ${plan.affected_files.length} target files.` : "."}`} />}
           {isDevDone && <ActivityLogItem message={`Applied code changes to ${changes.length} files.`} type="success" />}
           {repaired && <ActivityLogItem message={`Repair iteration triggered: ${repairTriggers}`} type="error" />}
           {isReviewDone && review?.approved && <ActivityLogItem message="Review passed successfully." type="success" />}
           {isReviewDone && !review?.approved && <ActivityLogItem message="Review requested changes. Initiating repair..." type="error" />}
+          {pr && <ActivityLogItem message="Drafted pull request description." />}
           {isPrDone && <ActivityLogItem time={run.completed_at ?? undefined} message={`Pull Request created successfully!`} type="success" />}
           {isFailed && <ActivityLogItem time={run.completed_at ?? undefined} message={`Run failed: ${run.error}`} type="error" />}
           {run.status === "running" && <ActivityLogItem message={`Agent is currently running node: ${run.current_node}...`} />}
@@ -300,19 +308,23 @@ export function AgentRunDetail({ runId }: { runId: string }) {
       </div>
 
       {/* 4B: Reasoning & Diffs */}
-      {(plan || changes.length > 0 || review) && (
+      {(issue || plan || changes.length > 0 || review || pr) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
+
           <div className="lg:col-span-1 space-y-6">
+            {issue && <IssueAnalysisCard issue={issue} analysis={issueAnalysis} />}
+
             {plan && (
-              <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6">
+              <div className="forge-output-in bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6">
                 <div className="flex items-center gap-2 mb-4 text-neutral-300">
                   <CheckSquare className="w-5 h-5 text-blue-400" />
                   <h3 className="font-medium">Execution Plan</h3>
                 </div>
-                <div className="prose prose-invert prose-sm">
-                  <p className="text-neutral-400">{plan.approach_reasoning}</p>
-                </div>
+                {plan.approach_reasoning && (
+                  <div className="prose prose-invert prose-sm">
+                    <p className="text-neutral-400">{plan.approach_reasoning}</p>
+                  </div>
+                )}
                 {plan.tasks && plan.tasks.length > 0 && (
                   <ul className="mt-4 space-y-2">
                     {plan.tasks.map((t, i) => (
@@ -323,14 +335,50 @@ export function AgentRunDetail({ runId }: { runId: string }) {
                     ))}
                   </ul>
                 )}
+                {plan.affected_files && plan.affected_files.length > 0 && (
+                  <div className="mt-5">
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-neutral-500 mb-2">Affected Files</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {plan.affected_files.map((f, i) => (
+                        <span key={i} className="flex items-center gap-1 text-xs font-mono bg-neutral-950 text-neutral-400 border border-neutral-800 px-2 py-1 rounded">
+                          <FileCode className="w-3 h-3" />
+                          {f}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {plan.dependencies && plan.dependencies.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-neutral-500 mb-2">Dependencies</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {plan.dependencies.map((d, i) => (
+                        <span key={i} className="flex items-center gap-1 text-xs font-mono bg-neutral-950 text-neutral-400 border border-neutral-800 px-2 py-1 rounded">
+                          <Folder className="w-3 h-3" />
+                          {d}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {review && (
-              <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <CheckCircle2 className={cn("w-5 h-5", review.approved ? "text-green-500" : "text-amber-500")} />
-                  <h3 className="font-medium text-neutral-300">Code Review</h3>
+              <div className="forge-output-in bg-neutral-900/50 border border-neutral-800 rounded-2xl p-6">
+                <div className="flex items-center justify-between gap-2 mb-4">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className={cn("w-5 h-5", review.approved ? "text-green-500" : "text-amber-500")} />
+                    <h3 className="font-medium text-neutral-300">Code Review</h3>
+                  </div>
+                  <span className={cn(
+                    "text-xs font-medium uppercase tracking-wider px-2 py-0.5 rounded-md border",
+                    review.approved
+                      ? "bg-green-500/10 text-green-400 border-green-500/20"
+                      : "bg-amber-500/10 text-amber-400 border-amber-500/20",
+                  )}>
+                    {review.approved ? "Approved" : "Changes Requested"}
+                  </span>
                 </div>
                 {review.comments && review.comments.length > 0 && (
                   <ul className="space-y-3">
@@ -341,13 +389,35 @@ export function AgentRunDetail({ runId }: { runId: string }) {
                     ))}
                   </ul>
                 )}
+                {review.security_issues && review.security_issues.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-red-400">
+                      <ShieldAlert className="w-3.5 h-3.5" /> Security Issues
+                    </p>
+                    {review.security_issues.map((s, i) => (
+                      <p key={i} className="text-sm text-red-300/90 bg-red-500/5 p-3 rounded-lg border border-red-500/20">{s}</p>
+                    ))}
+                  </div>
+                )}
+                {review.suggestions && review.suggestions.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <p className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-amber-400">
+                      <Lightbulb className="w-3.5 h-3.5" /> Suggestions
+                    </p>
+                    {review.suggestions.map((s, i) => (
+                      <p key={i} className="text-sm text-amber-200/80 bg-amber-500/5 p-3 rounded-lg border border-amber-500/20">{s}</p>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
+
+            {pr && !prUrl && <PrDraftCard pr={pr} />}
           </div>
 
           <div className="lg:col-span-2 space-y-6">
             {changes.length > 0 && (
-              <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl overflow-hidden">
+              <div className="forge-output-in bg-neutral-900/50 border border-neutral-800 rounded-2xl overflow-hidden">
                 <div className="px-6 py-4 border-b border-neutral-800 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-neutral-300">
                     <FileCode className="w-5 h-5 text-blue-400" />

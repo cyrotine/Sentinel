@@ -27,12 +27,19 @@ logger = logging.getLogger(__name__)
 # this is a hard backstop against any unexpected cycle.
 _RECURSION_LIMIT = 50
 
-# Final-state fields persisted into AgentRun.result.
+# Final-state fields persisted into AgentRun.result. These are also written
+# incrementally on every node transition so the frontend can surface each agent's
+# output the instant it is produced. Built strictly from typed SentinelState
+# fields — never the PAT or git push details.
 _RESULT_FIELDS = (
+    "repo_context",
+    "issue_analyses",
     "selected_issue",
     "plan",
     "code_changes",
     "patch_results",
+    "validation_result",
+    "test_results",
     "review",
     "pull_request_draft",
     "iteration",
@@ -139,7 +146,10 @@ class BrainService:
                             continue
                         accumulator.update(partial)
                         
-                        # Expose intermediate accumulator data separately
+                        # Persist the partial accumulator so the polling frontend
+                        # surfaces each agent's output the moment it lands, instead
+                        # of only at completion. Folded into the existing
+                        # current_node write — no extra DB round-trip.
                         snapshot = {field: _dump(accumulator.get(field)) for field in _RESULT_FIELDS if field in accumulator}
                         self._active_snapshots[run_id] = snapshot
 
@@ -148,6 +158,7 @@ class BrainService:
                             run_id,
                             _status_str(partial.get("status"), "running"),
                             current_node=node_name,
+                            result=snapshot,
                         )
 
                 result = {field: _dump(accumulator.get(field)) for field in _RESULT_FIELDS}

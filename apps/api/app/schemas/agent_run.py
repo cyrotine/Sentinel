@@ -17,11 +17,20 @@ class AgentRunCreatedOut(BaseModel):
 
 
 class AgentRunResult(BaseModel):
-    """Serialized subset of the final SentinelState, stored in agent_runs.result."""
+    """Serialized subset of SentinelState, stored in agent_runs.result.
 
+    Written incrementally on every node transition so the frontend can surface
+    each agent's output live, then overwritten with the full payload at completion.
+    """
+
+    repo_context: dict | None = None
+    issue_analyses: list[dict] = []
     selected_issue: dict | None = None
     plan: dict | None = None
     code_changes: list[dict] = []
+    patch_results: list[dict] = []
+    validation_result: dict | None = None
+    test_results: list[dict] = []
     review: dict | None = None
     pull_request_draft: dict | None = None
     pull_request_url: str | None = None
@@ -40,7 +49,6 @@ class AgentRunOut(BaseModel):
     current_node: str | None
     error: str | None
     result: AgentRunResult | None
-    execution_snapshot: dict | None = None
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None

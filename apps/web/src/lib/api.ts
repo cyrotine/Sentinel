@@ -138,9 +138,14 @@ export async function deleteRepository(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export interface AgentRunResult {
+  repo_context: Record<string, unknown> | null
+  issue_analyses: Record<string, unknown>[]
   selected_issue: Record<string, unknown> | null
   plan: Record<string, unknown> | null
   code_changes: Record<string, unknown>[]
+  patch_results: Record<string, unknown>[]
+  validation_result: Record<string, unknown> | null
+  test_results: Record<string, unknown>[]
   review: Record<string, unknown> | null
   pull_request_draft: Record<string, unknown> | null
   pull_request_url: string | null
