@@ -1,0 +1,12 @@
+.git
+**/node_modules
+.venv
+**/.venv
+.next
+**/.next
+.turbo
+.ruff_cache
+**/__pycache__
+*.pyc
+*.pdf
+forge-project-report.*

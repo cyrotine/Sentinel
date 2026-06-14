@@ -1,5 +1,10 @@
-const configuredUrl = process.env.NEXT_PUBLIC_API_URL;
-const API_BASE = configuredUrl ?? "http://127.0.0.1:8000/api";
+// Server Components resolve API_URL at runtime (plain env var, not baked in).
+// Client components use NEXT_PUBLIC_API_URL which is inlined at build time.
+// Fallback to localhost for local dev.
+const API_BASE =
+  process.env.API_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  "http://127.0.0.1:8000/api";
 
 export interface IngestionRunOut {
   id: string

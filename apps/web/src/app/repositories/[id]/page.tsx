@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import { notFound } from "next/navigation"
 import { fetchFiles, fetchIngestionStatus, fetchIssues, fetchRepository } from "@/lib/api"
 import { StatusBadge } from "@/components/ui/status-badge"

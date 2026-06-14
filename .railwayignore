@@ -1,0 +1,15 @@
+# Keep the railway upload small. Unlike .gitignore this does NOT exclude
+# alembic/versions/*.py, so DB migrations are included in the build.
+node_modules
+**/node_modules
+.venv
+**/.venv
+.git
+.next
+**/.next
+.turbo
+.ruff_cache
+**/__pycache__
+*.pyc
+*.pdf
+forge-project-report.*

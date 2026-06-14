@@ -17,6 +17,12 @@ function hasPendingIngestion(repos: RepositoryOut[]): boolean {
 export function RepositoriesListClient({ initialRepos }: { initialRepos: RepositoryOut[] }) {
   const [repos, setRepos] = useState<RepositoryOut[]>(initialRepos)
 
+  // Sync when the Server Component re-renders with fresh data (e.g. after
+  // router.refresh() triggered by connect or delete).
+  useEffect(() => {
+    setRepos(initialRepos)
+  }, [initialRepos])
+
   useEffect(() => {
     if (!hasPendingIngestion(repos)) return
 

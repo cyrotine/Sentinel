@@ -12,8 +12,8 @@ export async function DashboardPage() {
     repoCount = repos.length
     indexedCount = repos.filter((r) => r.latest_ingestion?.status === "completed").length
     openIssues = repos.reduce((sum, r) => sum + r.stats.open_issues, 0)
-  } catch {
-    // API not reachable — fallbacks
+  } catch (err) {
+    console.error("Dashboard: failed to fetch repos:", err instanceof Error ? err.message : err)
   }
 
   return (

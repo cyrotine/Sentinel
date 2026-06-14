@@ -23,10 +23,12 @@ export function DeleteRepositoryButton({ id }: { id: string }) {
     setLoading(true)
     try {
       await deleteRepository(id)
+      router.push("/repositories")
       router.refresh()
-    } catch {
+    } catch (err) {
       setLoading(false)
       setConfirming(false)
+      alert(err instanceof Error ? err.message : "Delete failed")
     }
   }
 

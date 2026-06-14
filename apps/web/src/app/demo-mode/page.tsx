@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import Link from "next/link"
 import { fetchAgentRuns, fetchRepositories } from "@/lib/api"
 import { CheckCircle2, GitPullRequest, GitBranch, PlayCircle, Star } from "lucide-react"

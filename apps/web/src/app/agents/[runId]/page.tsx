@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"
+
 import { AgentRunDetail } from "@/components/agents/agent-run-detail"
 
 interface Props {
