@@ -8,6 +8,7 @@ import { LanguageBreakdown } from "@/components/repositories/language-breakdown"
 import { IssuesList } from "@/components/repositories/issues-list"
 import { IngestionProgress } from "@/components/repositories/ingestion-progress"
 import { RepositoryDetailClient } from "@/components/repositories/repository-detail-client"
+import { ReloadRepositoryButton } from "@/components/repositories/reload-repository-button"
 
 interface Props {
   params: Promise<{ id: string }>
@@ -51,6 +52,7 @@ export default async function RepositoryDetailPage({ params }: Props) {
             {repo.github_url}
           </a>
         </div>
+        <ReloadRepositoryButton id={id} disabled={!isTerminal} />
       </div>
 
       {/* Stats */}

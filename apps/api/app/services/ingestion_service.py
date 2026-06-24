@@ -82,9 +82,13 @@ class IngestionService:
                 if settings.google_api_key:
                     await self._embed(session, repository_id, ingestion_run_id, analysis.files)
                 else:
-                    logger.warning(
-                        "OPENAI_API_KEY not set — skipping embedding for repository %s",
-                        repository_id,
+                    _warning = (
+                        "Gemini API key not present — vector embedding was skipped. "
+                        "Semantic search is unavailable; agent runs will have no code context."
+                    )
+                    logger.warning("%s (repository %s)", _warning, repository_id)
+                    await ingestion_repo.update_status(
+                        session, ingestion_run_id, "embedding", warning=_warning
                     )
 
                 shutil.rmtree(clone_path, ignore_errors=True)

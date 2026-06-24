@@ -412,12 +412,17 @@ Full File Retrieval        ❌ not started
 Patch Executor            ❌ not started
 Git Operations            ❌ not started
 GitHub PR Creation        ❌ not started
-Real Test Execution       ❌ deferred (see below)
+Real Test Execution       ✅ done (local: html-validate + DOM/content assertions)
 Docker Sandbox            ❌ deferred (see below)
 ```
 
-The existing `TestAgent` and `ValidatorAgent` reason about code using the LLM.
-They do NOT execute real commands. This is intentional for the current phase.
+Test execution is now **real and local**: the `TestDesignerAgent` authors executable
+`TestSpec`s after the planner (before the developer), and the `test_agent` node runs them
+for real via the `SandboxRunner` (`html-validate` CLI + in-process BeautifulSoup/regex
+assertions). The LLM-simulated `TestAgent` is no longer wired into the graph. The
+`ValidatorAgent` still reasons about code using the LLM. Real execution currently runs as a
+**local subprocess** (no Docker); the Docker/managed sandbox remains deferred and is the
+prerequisite before exposing execution to deployed/untrusted traffic.
 
 ---
 
@@ -474,9 +479,23 @@ Remove the rule "Always use Docker sandbox execution" from Security Rules for th
 
 ### Test Execution
 
-**Deferred for HTML/static repos.** Static HTML files have no test runner. The `TestAgent` continues to simulate test verification via LLM reasoning during this phase.
+**Real and local (test-first) for HTML/static repos.** The pipeline now writes tests
+*before* code and runs them for real:
 
-Real test execution (`pytest`, `npm test`, etc.) is a future phase, implemented only after Docker isolation is in place.
+- `TestDesignerAgent` runs after the planner and before the developer, deriving executable
+  `TestSpec`s from the issue's acceptance criteria (true TDD).
+- The `test_agent` node executes those specs via the `SandboxRunner`
+  (`packages/agents/forge_agents/sandbox_runner.py`): the real `html-validate` CLI for HTML
+  validity, plus in-process BeautifulSoup/regex evaluation for DOM/content assertions.
+- Failing tests feed the auto-repair loop (`tests_failed` trigger) so the developer
+  regenerates code to make them pass, bounded by `max_iterations`.
+
+Execution runs as a **local subprocess** behind a swappable `SandboxRunner` interface.
+Generated test artifacts are never written into the workspace (html-validate config is a
+temp file; assertions read files in-memory), so the git tree stays clean.
+
+Broader real test runners (`pytest`, `npm test`, etc.) and untrusted/deployed execution
+remain a future phase, implemented only after Docker isolation is in place (Phase 10).
 
 ---
 
@@ -588,11 +607,16 @@ Run language-specific validators (HTML: `html-validate`, Python: `py_compile`, T
 
 Do not implement this until Phase 10 (Docker) is complete.
 
-### Phase 9 — Real Test Execution (future)
-**Priority: CRITICAL | Deferred until after Docker sandbox**
+### Phase 9 — Real Test Execution
+**Status: ✅ done for the local html-validate stack (spec 16) | Broader runners deferred**
 
-Execute `pytest`, `npm test`, `go test`, etc. inside a Docker container.
-Replace the LLM-simulated `TestAgent` with real command output.
+Done: test-first authoring (`TestDesignerAgent`) + real local execution
+(`SandboxRunner`: `html-validate` + DOM/content assertions) replaces the LLM-simulated
+`TestAgent` in the graph, with a `tests_failed` auto-repair edge. Runs as a local
+subprocess behind a swappable interface.
+
+Still future (after Docker, Phase 10): execute `pytest`, `npm test`, `go test`, etc., and
+run untrusted/deployed test code inside a Docker container.
 
 ### Phase 10 — Docker Sandbox (future)
 **Priority: CRITICAL | Deferred**

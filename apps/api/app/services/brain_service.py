@@ -39,6 +39,7 @@ _RESULT_FIELDS = (
     "code_changes",
     "patch_results",
     "validation_result",
+    "test_specs",
     "test_results",
     "review",
     "pull_request_draft",
@@ -350,7 +351,7 @@ class BrainService:
         return ChatGoogleGenerativeAI(
             model=settings.brain_llm_model,
             google_api_key=settings.google_api_key,
-            temperature=0.2,
+            temperature=0.3,
         )
 
     @staticmethod

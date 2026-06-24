@@ -268,6 +268,7 @@ Respond with valid JSON only. No markdown, no explanation, just the JSON object.
             tasks=tasks,
             affected_files=parsed.get("affected_files", []),
             dependencies=parsed.get("dependencies", []),
+            tests_needed=[str(t) for t in tests_needed if str(t).strip()],
             approach_reasoning="\n\n".join(reasoning_parts),
         )
 

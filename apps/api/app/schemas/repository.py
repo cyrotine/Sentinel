@@ -46,6 +46,7 @@ class IngestionRunOut(BaseModel):
     total_files: int | None
     processed_files: int
     error: str | None
+    warning: str | None
     started_at: datetime | None
     completed_at: datetime | None
 

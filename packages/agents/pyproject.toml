@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "forge-agents"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["pydantic>=2.10"]
+dependencies = ["pydantic>=2.10", "beautifulsoup4>=4.12"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["forge_agents"]

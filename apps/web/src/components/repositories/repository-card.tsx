@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { DeleteRepositoryButton } from "@/components/repositories/delete-repository-button"
+import { ReloadRepositoryButton } from "@/components/repositories/reload-repository-button"
 import type { RepositoryOut } from "@/lib/api"
 import { FileCode2, GitPullRequest, Database } from "lucide-react"
 
@@ -38,7 +39,12 @@ export function RepositoryCard({ repo }: { repo: RepositoryOut }) {
           )}
         </div>
       </Link>
-      <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute top-4 right-4 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <ReloadRepositoryButton
+          id={repo.id}
+          variant="icon"
+          disabled={!!ingestion && !["completed", "failed"].includes(ingestion.status)}
+        />
         <DeleteRepositoryButton id={repo.id} />
       </div>
     </div>

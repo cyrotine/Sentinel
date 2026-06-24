@@ -7,3 +7,16 @@ members = [
   "packages/repository-analysis",
   "packages/vector-store",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/agents/tests"]
+asyncio_mode = "auto"
+# Domain models/agents are named Test* (TestSpec, TestResult, TestAgent, ...).
+# Restrict test-class collection so pytest does not try to collect them.
+python_classes = ["*Tests", "*TestCase"]

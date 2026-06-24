@@ -16,6 +16,7 @@ Design principles:
 from __future__ import annotations
 
 from enum import Enum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -51,6 +52,7 @@ class SentinelStatus(str, Enum):
     DEVELOPING = "developing"
     APPLYING_PATCHES = "applying_patches"
     VALIDATING = "validating"
+    DESIGNING_TESTS = "designing_tests"
     TESTING = "testing"
     REVIEWING = "reviewing"
     GENERATING_PR = "generating_pr"
@@ -140,6 +142,10 @@ class Plan(BaseModel):
         default_factory=list,
         description="External packages or internal modules this plan depends on",
     )
+    tests_needed: list[str] = Field(
+        default_factory=list,
+        description="Acceptance criteria / things to verify; consumed by the Test Designer agent",
+    )
     approach_reasoning: str = Field(
         default="",
         description="Explanation of the chosen approach and alternatives considered",
@@ -197,7 +203,7 @@ class RepairContext(BaseModel):
     )
     triggers: list[str] = Field(
         default_factory=list,
-        description="Active failure modes: any of 'patch_failed', 'validation_failed', 'review_rejected'",
+        description="Active failure modes: any of 'patch_failed', 'validation_failed', 'tests_failed', 'review_rejected'",
     )
     failed_patches: list[PatchResult] = Field(
         default_factory=list,
@@ -208,6 +214,10 @@ class RepairContext(BaseModel):
     )
     validation_suggestions: list[str] = Field(
         default_factory=list, description="Fixes suggested by the Validator agent"
+    )
+    test_failures: list[str] = Field(
+        default_factory=list,
+        description="Names/messages of TestResults that failed in the prior attempt",
     )
     review_comments: list[str] = Field(
         default_factory=list, description="General comments from the Reviewer agent"
@@ -241,13 +251,89 @@ class GitResult(BaseModel):
 
 
 class TestResult(BaseModel):
-    """Result of a single test case, produced by the Test agent."""
+    """Result of a single test case, produced by the Test agent.
+
+    Produced by the ``test_agent`` graph node from real execution: ``html-validate``
+    runs and Python DOM/content assertions evaluated against the patched workspace.
+    ``spec_id`` links the result back to the :class:`TestSpec` that produced it, and
+    ``exit_code`` carries the underlying runner's process exit code (``None`` for
+    in-process assertion evaluation).
+    """
 
     name: str = Field(..., description="Test name or identifier")
     passed: bool = Field(..., description="Whether the test passed")
     output: str = Field(default="", description="Stdout/stderr from the test run")
     error: str | None = Field(
         default=None, description="Error message if the test failed"
+    )
+    spec_id: str | None = Field(
+        default=None, description="ID of the TestSpec this result was produced from"
+    )
+    exit_code: int | None = Field(
+        default=None,
+        description="Process exit code from the external runner; None for in-process assertions",
+    )
+
+
+class TestAssertion(BaseModel):
+    """A single content/DOM check evaluated against one file in the workspace.
+
+    Part of a ``framework="assertion"`` :class:`TestSpec`. The ``type`` selects which
+    fields are meaningful; the rest stay ``None``:
+
+    - ``dom_text``     — ``selector`` + (``expected`` exact text or ``contains`` substring)
+    - ``dom_attr``     — ``selector`` + ``attr`` + (``expected`` or ``contains``)
+    - ``content_regex``— ``pattern`` searched against the raw file text
+    - ``content_contains`` — ``contains`` substring searched in the raw file text
+    """
+
+    type: Literal["dom_text", "dom_attr", "content_regex", "content_contains"] = Field(
+        ..., description="Which kind of check this is"
+    )
+    selector: str | None = Field(
+        default=None, description="CSS selector for dom_text/dom_attr checks"
+    )
+    attr: str | None = Field(
+        default=None, description="Attribute name for dom_attr checks"
+    )
+    expected: str | None = Field(
+        default=None, description="Exact expected value (text or attribute)"
+    )
+    contains: str | None = Field(
+        default=None, description="Substring the target must contain"
+    )
+    pattern: str | None = Field(
+        default=None, description="Regex pattern for content_regex checks"
+    )
+
+
+class TestSpec(BaseModel):
+    """An executable test case authored by the Test Designer agent before code is written.
+
+    Produced by the ``test_designer`` graph node (after the planner, before the developer)
+    so tests are defined from the issue's acceptance criteria independently of the
+    implementation. Executed later by the ``test_agent`` node via the SandboxRunner.
+
+    Two frameworks:
+    - ``html-validate`` — validity of ``target_file`` via the real ``html-validate`` runner.
+    - ``assertion``     — the ``assertions`` list evaluated in-process against ``target_file``.
+    """
+
+    id: str = Field(..., description="Unique identifier within the run (e.g. 'test_1')")
+    name: str = Field(..., description="Human-readable test name")
+    acceptance_criterion: str = Field(
+        default="",
+        description="The issue requirement this test verifies",
+    )
+    target_file: str = Field(
+        ..., description="Repo-relative path of the file under test"
+    )
+    framework: Literal["html-validate", "assertion"] = Field(
+        ..., description="How this spec is executed"
+    )
+    assertions: list[TestAssertion] = Field(
+        default_factory=list,
+        description="Checks to evaluate when framework is 'assertion'",
     )
 
 
@@ -511,6 +597,13 @@ class SentinelState(BaseModel):
 
     plan: Plan | None = Field(
         default=None, description="Implementation plan from the Planner agent"
+    )
+
+    # --- Phase 4b: Design tests (test_designer) — authored before the developer ---
+
+    test_specs: list[TestSpec] = Field(
+        default_factory=list,
+        description="Executable test cases authored from the issue's acceptance criteria, before code generation",
     )
 
     # --- Phase 5: Execute (developer) ---

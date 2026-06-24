@@ -15,6 +15,7 @@ interface IngestionProgressProps {
 
 export function IngestionProgress({ repositoryId, initial, onComplete }: IngestionProgressProps) {
   const [run, setRun] = useState<IngestionRunOut>(initial)
+  const [warningDismissed, setWarningDismissed] = useState(false)
 
   useEffect(() => {
     if (TERMINAL.has(run.status)) return
@@ -42,7 +43,31 @@ export function IngestionProgress({ repositoryId, initial, onComplete }: Ingesti
         ? 100
         : null
 
-  if (run.status === "completed") return null
+  if (run.status === "completed") {
+    if (!run.warning || warningDismissed) return null
+
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <svg className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+            <p className="text-sm text-amber-800">{run.warning}</p>
+          </div>
+          <button
+            onClick={() => setWarningDismissed(true)}
+            className="shrink-0 text-amber-500 hover:text-amber-700"
+            aria-label="Dismiss warning"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4">

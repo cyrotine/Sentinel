@@ -12,6 +12,7 @@ export interface IngestionRunOut {
   total_files: number | null
   processed_files: number
   error: string | null
+  warning: string | null
   started_at: string | null
   completed_at: string | null
 }
@@ -150,6 +151,7 @@ export interface AgentRunResult {
   code_changes: Record<string, unknown>[]
   patch_results: Record<string, unknown>[]
   validation_result: Record<string, unknown> | null
+  test_specs: Record<string, unknown>[]
   test_results: Record<string, unknown>[]
   review: Record<string, unknown> | null
   pull_request_draft: Record<string, unknown> | null

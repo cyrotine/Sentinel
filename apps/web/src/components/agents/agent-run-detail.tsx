@@ -7,13 +7,13 @@ import type { AgentRunOut } from "@/lib/api"
 import { DiffViewer } from "@/components/agents/diff-viewer"
 import { IssueAnalysisCard, type IssueAnalysisShape } from "@/components/agents/issue-analysis-card"
 import { PrDraftCard } from "@/components/agents/pr-draft-card"
-import { CheckCircle2, Circle, Clock, GitPullRequest, Loader2, PlayCircle, Terminal, XCircle, FileCode, CheckSquare, GitBranch, ShieldAlert, Lightbulb, Folder } from "lucide-react"
+import { CheckCircle2, Circle, Clock, GitPullRequest, Loader2, PlayCircle, Terminal, XCircle, FileCode, CheckSquare, GitBranch, ShieldAlert, Lightbulb, Folder, FlaskConical } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const TERMINAL = new Set(["completed", "failed"])
 const POLL_INTERVAL_MS = 2000
 
-type PipelineStage = "issue_selection" | "planner" | "developer" | "reviewer" | "pull_request"
+type PipelineStage = "issue_selection" | "planner" | "test_designer" | "developer" | "testing" | "reviewer" | "pull_request"
 
 // Maps the authoritative LangGraph node (run.current_node, written at node
 // *start*) to a pipeline stage. This is the source of truth for the *active*
@@ -25,10 +25,11 @@ const NODE_TO_STAGE: Record<string, PipelineStage> = {
   retrieve_context: "issue_selection",
   load_full_files: "issue_selection",
   planner: "planner",
+  test_designer: "test_designer",
   developer: "developer",
   apply_patches: "developer",
   validator: "developer",
-  test_agent: "developer",
+  test_agent: "testing",
   reviewer: "reviewer",
   pr_generator: "pull_request",
 }
@@ -66,10 +67,26 @@ interface RepairShape {
   iteration?: number
   triggers?: string[]
 }
+interface TestResultShape {
+  name?: string
+  passed?: boolean
+  output?: string
+  error?: string | null
+  spec_id?: string | null
+  exit_code?: number | null
+}
+interface TestSpecShape {
+  id?: string
+  name?: string
+  acceptance_criterion?: string
+  target_file?: string
+  framework?: string
+}
 
 const TRIGGER_LABELS: Record<string, string> = {
   patch_failed: "patch failed to apply",
   validation_failed: "validation failed",
+  tests_failed: "tests failed",
   review_rejected: "review rejected",
 }
 
@@ -186,6 +203,8 @@ export function AgentRunDetail({ runId }: { runId: string }) {
   const prUrl = result?.pull_request_url ?? null
   const prNumber = result?.pull_request_number ?? null
   const changes = (result?.code_changes ?? []) as CodeChangeShape[]
+  const testSpecs = (result?.test_specs ?? []) as TestSpecShape[]
+  const testResults = (result?.test_results ?? []) as TestResultShape[]
   const iteration = result?.iteration ?? null
   const repairContext = result?.repair_context as RepairShape | null | undefined
   const repaired = iteration != null && iteration > 1
@@ -197,7 +216,10 @@ export function AgentRunDetail({ runId }: { runId: string }) {
   const isFailed = run.status === "failed"
   const isIssueDone = !!issue
   const isPlanDone = !!plan
+  const isTestGenDone = testSpecs.length > 0
   const isDevDone = changes.length > 0
+  const isTestDone = testResults.length > 0
+  const testsPassed = isTestDone && testResults.every((t) => t.passed)
   const isReviewDone = !!review
   const isPrDone = !!prUrl || run.status === "completed"
 
@@ -211,7 +233,8 @@ export function AgentRunDetail({ runId }: { runId: string }) {
     liveStage ??
     (isReviewDone ? "reviewer" :
      isDevDone ? "validator" :
-     isPlanDone ? "developer" :
+     isTestGenDone ? "developer" :
+     isPlanDone ? "test_designer" :
      isIssueDone ? "planner" :
      "issue_selection")
 
@@ -277,8 +300,12 @@ export function AgentRunDetail({ runId }: { runId: string }) {
           <PipelineConnector active={activeStage === "issue_selection"} />
           <PipelineStep label="Planning" isActive={activeStage === "planner"} isCompleted={isPlanDone} />
           <PipelineConnector active={activeStage === "planner"} />
+          <PipelineStep label="Test Gen" isActive={activeStage === "test_designer"} isCompleted={isTestGenDone} />
+          <PipelineConnector active={activeStage === "test_designer"} />
           <PipelineStep label="Code Gen" isActive={activeStage === "developer"} isCompleted={isDevDone} />
           <PipelineConnector active={activeStage === "developer" || activeStage === "validator"} />
+          <PipelineStep label="Testing" isActive={activeStage === "testing"} isCompleted={isTestDone} isFailed={isTestDone && !testsPassed} />
+          <PipelineConnector active={activeStage === "testing"} />
           <PipelineStep label="Review" isActive={activeStage === "reviewer"} isCompleted={isReviewDone} isFailed={isFailed && activeStage === "reviewer"} />
           <PipelineConnector active={activeStage === "reviewer"} />
           <PipelineStep label="Pull Request" isActive={run.status === "running" && isReviewDone} isCompleted={isPrDone} isFailed={isFailed && !isPrDone} />
@@ -297,6 +324,8 @@ export function AgentRunDetail({ runId }: { runId: string }) {
           {issueAnalysis?.severity && <ActivityLogItem message={`Analyzed issue — ${issueAnalysis.issue_type ?? "issue"}, severity ${issueAnalysis.severity}.`} />}
           {isPlanDone && <ActivityLogItem message={`Generated execution plan${plan?.affected_files?.length ? ` across ${plan.affected_files.length} target files.` : "."}`} />}
           {isDevDone && <ActivityLogItem message={`Applied code changes to ${changes.length} files.`} type="success" />}
+          {testSpecs.length > 0 && <ActivityLogItem message={`Designed ${testSpecs.length} executable test${testSpecs.length === 1 ? "" : "s"} from acceptance criteria.`} />}
+          {isTestDone && <ActivityLogItem message={`Ran ${testResults.length} test${testResults.length === 1 ? "" : "s"}: ${testResults.filter((t) => t.passed).length}/${testResults.length} passed.`} type={testsPassed ? "success" : "error"} />}
           {repaired && <ActivityLogItem message={`Repair iteration triggered: ${repairTriggers}`} type="error" />}
           {isReviewDone && review?.approved && <ActivityLogItem message="Review passed successfully." type="success" />}
           {isReviewDone && !review?.approved && <ActivityLogItem message="Review requested changes. Initiating repair..." type="error" />}
@@ -308,7 +337,7 @@ export function AgentRunDetail({ runId }: { runId: string }) {
       </div>
 
       {/* 4B: Reasoning & Diffs */}
-      {(issue || plan || changes.length > 0 || review || pr) && (
+      {(issue || plan || changes.length > 0 || testSpecs.length > 0 || review || pr) && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
           <div className="lg:col-span-1 space-y-6">
@@ -416,6 +445,63 @@ export function AgentRunDetail({ runId }: { runId: string }) {
           </div>
 
           <div className="lg:col-span-2 space-y-6">
+            {(testSpecs.length > 0 || testResults.length > 0) && (
+              <div className="forge-output-in bg-neutral-900/50 border border-neutral-800 rounded-2xl overflow-hidden">
+                <div className="px-6 py-4 border-b border-neutral-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-neutral-300">
+                    <FlaskConical className="w-5 h-5 text-blue-400" />
+                    <h3 className="font-medium">Tests {isTestDone ? "Executed" : "Designed"}</h3>
+                  </div>
+                  {isTestDone ? (
+                    <span className={cn(
+                      "text-xs font-medium uppercase tracking-wider px-2 py-0.5 rounded-md border",
+                      testsPassed
+                        ? "bg-green-500/10 text-green-400 border-green-500/20"
+                        : "bg-red-500/10 text-red-400 border-red-500/20",
+                    )}>
+                      {testResults.filter((t) => t.passed).length}/{testResults.length} passed
+                    </span>
+                  ) : (
+                    <span className="text-xs font-medium bg-neutral-800 text-neutral-300 px-2 py-1 rounded">
+                      {testSpecs.length} test{testSpecs.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                </div>
+                <div className="p-6 space-y-3">
+                  {isTestDone
+                    ? testResults.map((t, i) => (
+                        <div key={i} className="rounded-lg border border-neutral-800 bg-neutral-950 overflow-hidden">
+                          <div className="flex items-center gap-2 px-4 py-2.5">
+                            {t.passed
+                              ? <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                              : <XCircle className="w-4 h-4 text-red-500 shrink-0" />}
+                            <span className="text-sm text-neutral-200 font-medium">{t.name}</span>
+                            {typeof t.exit_code === "number" && (
+                              <span className="ml-auto text-[10px] font-mono text-neutral-500">exit {t.exit_code}</span>
+                            )}
+                          </div>
+                          {(t.output || t.error) && (
+                            <pre className="px-4 py-2 border-t border-neutral-800 text-xs font-mono text-neutral-400 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                              {t.error ? `${t.error}\n${t.output ?? ""}` : t.output}
+                            </pre>
+                          )}
+                        </div>
+                      ))
+                    : testSpecs.map((s, i) => (
+                        <div key={i} className="flex items-start gap-2 text-sm text-neutral-300 rounded-lg border border-neutral-800 bg-neutral-950 px-4 py-2.5">
+                          <Circle className="w-3.5 h-3.5 mt-0.5 text-neutral-600 shrink-0" />
+                          <div className="min-w-0">
+                            <span className="text-neutral-200">{s.name}</span>
+                            <span className="ml-2 text-[10px] font-mono uppercase tracking-wider text-neutral-500">{s.framework}</span>
+                            {s.target_file && (
+                              <span className="ml-2 text-xs font-mono text-neutral-500">{s.target_file}</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                </div>
+              </div>
+            )}
             {changes.length > 0 && (
               <div className="forge-output-in bg-neutral-900/50 border border-neutral-800 rounded-2xl overflow-hidden">
                 <div className="px-6 py-4 border-b border-neutral-800 flex items-center justify-between">

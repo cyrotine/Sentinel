@@ -30,6 +30,7 @@ class AgentRunResult(BaseModel):
     code_changes: list[dict] = []
     patch_results: list[dict] = []
     validation_result: dict | None = None
+    test_specs: list[dict] = []
     test_results: list[dict] = []
     review: dict | None = None
     pull_request_draft: dict | None = None

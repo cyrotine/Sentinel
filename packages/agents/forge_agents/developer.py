@@ -268,6 +268,11 @@ Respond with valid JSON only. No markdown, no explanation, just the JSON object.
                 lines.append("Suggestions:")
                 lines.extend(f"  - {item}" for item in repair.validation_suggestions)
 
+        if repair.test_failures:
+            lines.append("")
+            lines.append("Tests that FAILED when run against your changes (make these pass):")
+            lines.extend(f"  - {item}" for item in repair.test_failures)
+
         review_items = (
             repair.review_security_issues + repair.review_comments + repair.review_suggestions
         )

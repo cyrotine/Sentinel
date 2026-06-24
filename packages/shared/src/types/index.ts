@@ -38,6 +38,32 @@ export interface TestResult {
   passed: boolean;
   output: string;
   error?: string;
+  specId?: string;
+  exitCode?: number;
+}
+
+export type TestAssertionType =
+  | "dom_text"
+  | "dom_attr"
+  | "content_regex"
+  | "content_contains";
+
+export interface TestAssertion {
+  type: TestAssertionType;
+  selector?: string;
+  attr?: string;
+  expected?: string;
+  contains?: string;
+  pattern?: string;
+}
+
+export interface TestSpec {
+  id: string;
+  name: string;
+  acceptanceCriterion: string;
+  targetFile: string;
+  framework: "html-validate" | "assertion";
+  assertions: TestAssertion[];
 }
 
 export interface Review {

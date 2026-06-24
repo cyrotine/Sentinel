@@ -25,6 +25,7 @@ class IngestionRun(Base):
     total_files: Mapped[int | None] = mapped_column(nullable=True)
     processed_files: Mapped[int] = mapped_column(nullable=False, default=0)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    warning: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

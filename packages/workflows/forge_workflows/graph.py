@@ -16,6 +16,7 @@ Graph topology::
       → retrieve_context
       → load_full_files  (reads complete files from workspace; populates full_file_contexts)
       → planner
+      → test_designer    (authors executable TestSpecs from acceptance criteria — before code)
       → developer  (on retry, receives a RepairContext describing the prior failure)
       → apply_patches ──→ (route_after_apply_patches)
       │                  ├─ patch failed & retries left → developer
@@ -23,7 +24,9 @@ Graph topology::
       → validator ──→ (route_after_validator)
       │                  ├─ valid or max retries → test_agent
       │                  └─ invalid              → developer
-      → test_agent
+      → test_agent  (runs the TestSpecs for real via the SandboxRunner) ──→ (route_after_test_agent)
+      │                  ├─ tests failed & retries left → developer
+      │                  └─ passed or max retries        → reviewer
       → reviewer ───→ (route_after_reviewer)
       │                  ├─ approved or max retries → pr_generator
       │                  └─ rejected                → developer
@@ -48,7 +51,8 @@ from forge_agents.pr_generator import PRGeneratorAgent
 from forge_agents.repo_analyzer import RepoAnalyzerAgent
 from forge_agents.retrieve_context import RetrieveContextAgent
 from forge_agents.reviewer import ReviewerAgent
-from forge_agents.test_agent import TestAgent
+from forge_agents.sandbox_runner import sandbox_runner
+from forge_agents.test_designer import TestDesignerAgent
 from forge_agents.validator import ValidatorAgent
 from forge_workflows.state import FullFileContext, IssueAnalysis, RepairContext, SelectedIssue, SentinelState, SentinelStatus, ValidationResult
 
@@ -68,6 +72,7 @@ REPO_ANALYZER = "repo_analyzer"
 ISSUE_ANALYZER = "issue_analyzer"
 RETRIEVE_CONTEXT = "retrieve_context"
 PLANNER = "planner"
+TEST_DESIGNER = "test_designer"
 DEVELOPER = "developer"
 APPLY_PATCHES = "apply_patches"
 VALIDATOR = "validator"
@@ -112,6 +117,20 @@ def route_after_validator(state: SentinelState) -> Literal["developer", "test_ag
     return TEST_AGENT
 
 
+def route_after_test_agent(state: SentinelState) -> Literal["developer", "reviewer"]:
+    """Decide whether to retry development or proceed to review.
+
+    Routes back to ``developer`` when at least one executed test failed and the
+    iteration budget is not exhausted; otherwise proceeds to ``reviewer``. The
+    developer node rebuilds the test-failure feedback from ``test_results`` on re-entry.
+    """
+    any_failed = any(not r.passed for r in state.test_results)
+    if any_failed and state.iteration < state.max_iterations:
+        logger.info("Tests failed (iteration %d) — routing back to developer", state.iteration)
+        return DEVELOPER
+    return REVIEWER
+
+
 def route_after_reviewer(state: SentinelState) -> Literal["developer", "pr_generator"]:
     """Decide whether to retry development or proceed to PR generation.
 
@@ -140,12 +159,15 @@ def _build_repair_context(state: SentinelState) -> RepairContext | None:
     failed = [r for r in state.patch_results if not r.applied]
     vr = state.validation_result
     rev = state.review
+    failed_tests = [r for r in state.test_results if not r.passed]
 
     triggers: list[str] = []
     if failed:
         triggers.append("patch_failed")
     if vr is not None and not vr.passed:
         triggers.append("validation_failed")
+    if failed_tests:
+        triggers.append("tests_failed")
     if rev is not None and not rev.approved:
         triggers.append("review_rejected")
 
@@ -158,6 +180,9 @@ def _build_repair_context(state: SentinelState) -> RepairContext | None:
         failed_patches=failed,
         validation_issues=vr.issues if (vr is not None and not vr.passed) else [],
         validation_suggestions=vr.suggestions if (vr is not None and not vr.passed) else [],
+        test_failures=[
+            f"{r.name}: {(r.error or r.output or 'failed').strip()}" for r in failed_tests
+        ],
         review_comments=rev.comments if (rev is not None and not rev.approved) else [],
         review_security_issues=rev.security_issues if (rev is not None and not rev.approved) else [],
         review_suggestions=rev.suggestions if (rev is not None and not rev.approved) else [],
@@ -326,6 +351,31 @@ def build_graph(
             "plan": plan,
         }
 
+    async def test_designer(state: SentinelState) -> dict:
+        """Author executable test specs from the plan, before code generation (TDD)."""
+        logger.info("Node: %s", TEST_DESIGNER)
+
+        if not state.plan or not state.selected_issue:
+            logger.warning("No plan/issue — skipping test design")
+            return {
+                "current_agent": TEST_DESIGNER,
+                "status": SentinelStatus.DESIGNING_TESTS,
+                "test_specs": [],
+            }
+
+        agent = TestDesignerAgent(llm=llm)
+        specs = await agent.design(
+            selected_issue=state.selected_issue,
+            plan=state.plan,
+            repo_context=state.repo_context,
+            full_file_contexts=state.full_file_contexts,
+        )
+        return {
+            "current_agent": TEST_DESIGNER,
+            "status": SentinelStatus.DESIGNING_TESTS,
+            "test_specs": specs,
+        }
+
     async def developer(state: SentinelState) -> dict:
         """Generate code changes based on the plan.
 
@@ -431,16 +481,24 @@ def build_graph(
         }
 
     async def test_agent(state: SentinelState) -> dict:
-        """Generate simulated tests for the code changes."""
+        """Execute the designed test specs for real against the patched workspace.
+
+        Runs ``html-validate`` and in-process DOM/content assertions via the
+        SandboxRunner (no LLM). Failing results route back to the developer via
+        ``route_after_test_agent``.
+        """
         logger.info("Node: %s", TEST_AGENT)
 
-        agent = TestAgent(llm=llm)
-        test_results = await agent.test(
-            code_changes=state.code_changes,
-            plan=state.plan,
-            selected_issue=state.selected_issue,
-            repo_context=state.repo_context,
-            validation_result=state.validation_result,
+        if not state.workspace_path or not state.test_specs:
+            logger.warning("No workspace or no test specs — skipping test execution")
+            return {
+                "current_agent": TEST_AGENT,
+                "status": SentinelStatus.TESTING,
+                "test_results": [],
+            }
+
+        test_results = await asyncio.to_thread(
+            sandbox_runner.run, state.workspace_path, state.test_specs
         )
         return {
             "current_agent": TEST_AGENT,
@@ -496,6 +554,7 @@ def build_graph(
     graph.add_node(RETRIEVE_CONTEXT, retrieve_context)
     graph.add_node(LOAD_FULL_FILES, load_full_files)
     graph.add_node(PLANNER, planner)
+    graph.add_node(TEST_DESIGNER, test_designer)
     graph.add_node(DEVELOPER, developer)
     graph.add_node(APPLY_PATCHES, apply_patches)
     graph.add_node(VALIDATOR, validator)
@@ -509,7 +568,8 @@ def build_graph(
     graph.add_edge(ISSUE_ANALYZER, RETRIEVE_CONTEXT)
     graph.add_edge(RETRIEVE_CONTEXT, LOAD_FULL_FILES)
     graph.add_edge(LOAD_FULL_FILES, PLANNER)
-    graph.add_edge(PLANNER, DEVELOPER)
+    graph.add_edge(PLANNER, TEST_DESIGNER)
+    graph.add_edge(TEST_DESIGNER, DEVELOPER)
 
     # --- Patch application: apply the developer's diffs to the workspace ---
     graph.add_edge(DEVELOPER, APPLY_PATCHES)
@@ -528,8 +588,14 @@ def build_graph(
         {DEVELOPER: DEVELOPER, TEST_AGENT: TEST_AGENT},
     )
 
+    # --- Conditional: failed tests route back to the developer ---
+    graph.add_conditional_edges(
+        TEST_AGENT,
+        route_after_test_agent,
+        {DEVELOPER: DEVELOPER, REVIEWER: REVIEWER},
+    )
+
     # --- Conditional: reviewer decides retry or proceed ---
-    graph.add_edge(TEST_AGENT, REVIEWER)
     graph.add_conditional_edges(
         REVIEWER,
         route_after_reviewer,
